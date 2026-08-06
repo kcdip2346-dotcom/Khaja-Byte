@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Bookings Management{% endblock %}
+{% block pagetitle %}Bookings Management 📅{% endblock %}
+{% block crumb %}Pre-bookings from students{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-head"><h3>All bookings</h3><span class="spacer"></span>
+    <span class="muted">Confirm, complete or cancel — payment records stay intact</span></div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead><tr><th>Booking</th><th>Customer</th><th>Items</th><th>Date</th><th>Slot</th><th>Total</th><th>Payment</th><th>Status</th><th>Update</th></tr></thead>
+      <tbody>
+        {% for b in bookings %}
+        <tr>
+          <td class="mono">#KB{{ "%04d"|format(b.id) }}<br><span class="small">{{ b.created_at }}</span></td>
+          <td><b>{{ b.uname }}</b><br><span class="small">{{ b.uemail }}</span></td>
+          <td style="max-width:240px">{{ b.item_summary }}</td>
+          <td>{{ b.booking_date }}</td>
+          <td>{{ b.time_slot }}</td>
+          <td class="num">{{ b.total|npr }}</td>
+          <td><span class="badge {{ 'green' if b.payment_status=='paid' else 'amber' }}">{{ b.payment_status }}</span></td>
+          <td><span class="badge {{ 'green' if b.status=='confirmed' else ('blue' if b.status=='pending' else ('red' if b.status=='cancelled' else 'ivory')) }}">{{ b.status }}</span></td>
+          <td>
+            <form method="post" action="{{ url_for('admin_booking_status', booking_id=b.id) }}" class="inline-form">
+              <select name="status">
+                <option value="pending" {{ 'selected' if b.status=='pending' }}>Pending</option>
+                <option value="confirmed" {{ 'selected' if b.status=='confirmed' }}>Confirmed</option>
+                <option value="completed" {{ 'selected' if b.status=='completed' }}>Completed</option>
+                <option value="cancelled" {{ 'selected' if b.status=='cancelled' }}>Cancelled</option>
+              </select>
+              <button class="btn btn-sm">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="empty"><span class="em">📅</span><p>No bookings yet.</p></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

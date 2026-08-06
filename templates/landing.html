@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Khājā Byte · ING College Canteen</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="public-page">
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flashes">
+  {% for cat, msg in messages %}
+  <div class="flash {{ cat }}">{{ msg }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<nav class="pub-nav">
+  <a href="#top" class="brand">
+    <span class="logo-box">🥟</span>
+    <span>Khājā Byte<small>{{ college }}</small></span>
+  </a>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#menu">Menu</a>
+    <a href="{{ url_for('login') }}" class="btn btn-sm">Login</a>
+  </div>
+</nav>
+
+<section class="hero" id="top">
+  <div>
+    <span class="kicker">🧼 Hygienic · 💳 Card payment · 💰 Fair NPR prices</span>
+    <h1>Your college canteen,<br>reimagined — <em>Khājā Byte</em></h1>
+    <p>Order momos to biryani online, pay by card or eSewa in Nepali Rupees,
+       pre-book your lunch before the queue, and hold us accountable with
+       transparent prices and a real feedback system. No more long lines,
+       no more surprise price hikes, no more "sold out".</p>
+    <div class="ctas">
+      <a href="{{ url_for('register') }}" class="btn">Create Free Account</a>
+      <a href="{{ url_for('login') }}" class="btn btn-outline">Login</a>
+    </div>
+    <div class="stat-row">
+      <div><div class="num">रू 40–280</div><div class="lbl">Student-friendly prices</div></div>
+      <div><div class="num">100%</div><div class="lbl">Card &amp; online payments</div></div>
+      <div><div class="num">24/7</div><div class="lbl">Pre-booking available</div></div>
+    </div>
+  </div>
+
+  <div class="hero-visual">
+    <div class="chip">⭐ Kitchen Hygiene Rating <b>{{ "%.1f"|format(avg_rating) if avg_rating else "New" }} / 5</b></div>
+    <div class="plate">🍜</div>
+    <h3>Today's must-try</h3>
+    <p>Steam Momo with spicy achar — रू 120 · Chicken Biryani — रू 280.<br>
+       Order ahead, pay online, skip the line. 🇳🇵</p>
+  </div>
+</section>
+
+<section class="section-pad" id="features">
+  <div class="section-title">
+    <h2>Built to fix real canteen problems</h2>
+    <p>We listened to students and staff — then built every solution into one app.</p>
+  </div>
+  <div class="features">
+    <div class="feature">
+      <div class="ico">🧼</div>
+      <h3>Hygiene first</h3>
+      <p>Weekly kitchen audits, live hygiene rating, and a one-tap "hygiene issue"
+         report that goes straight to the admin team.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">🏷️</div>
+      <h3>No more price hikes</h3>
+      <p>Every item shows a fixed, transparent price in Nepali Rupees (रू).
+         Itemised bills at checkout — you always see exactly what you pay.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">💳</div>
+      <h3>Card &amp; online payment</h3>
+      <p>Pay by card, eSewa or Khalti in NPR — or choose cash at the counter.
+         Every payment gets a reference number and appears in your history.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">📅</div>
+      <h3>Pre-booking</h3>
+      <p>Book your momo or dal bhat in advance, pick a time slot, and walk
+         straight to the counter. No more "not available".</p>
+    </div>
+    <div class="feature">
+      <div class="ico">💬</div>
+      <h3>Feedback that works</h3>
+      <p>Rate every visit, flag hygiene concerns, and see admin replies.
+         Your voice changes how the canteen runs.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">📢</div>
+      <h3>Announcements</h3>
+      <p>Menu changes, specials, holidays and audits — announced by the admin
+         and visible to every student and staff member.</p>
+    </div>
+  </div>
+
+  <div class="why-pillars">
+    <div class="pillar"><span class="em">🧑‍🎓</span><b>For Students</b><span>Order, pay, pre-book &amp; review</span></div>
+    <div class="pillar"><span class="em">🧑‍🍳</span><b>For Staff</b><span>Accept bookings &amp; manage availability</span></div>
+    <div class="pillar"><span class="em">🛠️</span><b>For Admin</b><span>Menu, prices, feedback &amp; revenue</span></div>
+    <div class="pillar"><span class="em">🏫</span><b>ING College</b><span>Proudly serving innovation &amp; leadership</span></div>
+  </div>
+</section>
+
+<section class="section-pad" id="menu" style="padding-top:0">
+  <div class="section-title">
+    <h2>Popular dishes in NPR</h2>
+    <p>Prices shown are final — no hidden charges, no surprises.</p>
+  </div>
+  <div class="menu-strip">
+    {% for item in items %}
+    <div class="menu-card">
+      <span class="em">{{ item.image }}</span>
+      <div><b>{{ item.name }}</b><span>{{ item.category }}</span></div>
+      <div class="price">{{ item.price|npr }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="cta-band">
+  <h2>Hungry? Let's fix that.</h2>
+  <p>Join Khājā Byte — the official canteen app of {{ college }}.</p>
+  <a href="{{ url_for('register') }}" class="btn">Start Ordering →</a>
+</section>
+
+<footer>
+  <b>Khājā Byte 🥟</b> — Official Canteen App of {{ college }}<br>
+  <span class="small">Kathmandu, Nepal · All prices in Nepali Rupees (रू) · © 2026</span>
+</footer>
+
+</body>
+</html>

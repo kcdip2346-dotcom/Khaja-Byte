@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Transactions{% endblock %}
+{% block pagetitle %}Transaction History 💳{% endblock %}
+{% block crumb %}Every payment in Nepali Rupees (रू), fully tracked{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-head"><h3>Payment history</h3><span class="spacer"></span>
+    <span class="muted">All amounts in NPR</span></div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr><th>Reference</th><th>Date</th><th>Related booking</th><th>Method</th><th>Amount (NPR)</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for t in txns %}
+        <tr>
+          <td class="mono">{{ t.txn_ref }}</td>
+          <td>{{ t.created_at }}</td>
+          <td>{% if t.booking_id %}<span class="mono">#KB{{ "%04d"|format(t.booking_id) }}</span>
+            <a href="{{ url_for('invoice_page', booking_id=t.booking_id) }}" class="small" style="margin-left:4px">🧾</a>
+          {% else %}<span class="muted">—</span>{% endif %}</td>
+          <td><span class="badge {{ 'blue' if t.method=='card' else ('orange' if t.method in ('esewa','khalti') else ('green' if t.method=='Refund' else 'ivory')) }}">{{ t.method }}</span></td>
+          <td class="num">{{ t.amount|npr }}</td>
+          <td><span class="badge {{ 'green' if t.status=='success' else 'amber' }}">{{ t.status }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty"><span class="em">🧾</span><p>No transactions yet — place your first order and pay online!</p></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="muted">💡 Every card, eSewa and Khalti payment creates a unique reference. Cash bookings appear here once paid at the counter.</div>
+
+{% endblock %}

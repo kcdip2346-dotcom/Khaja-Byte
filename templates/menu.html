@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Menu · Order{% endblock %}
+{% block pagetitle %}Menu &amp; Pre-book 🍽️{% endblock %}
+{% block crumb %}Transparent prices in Nepali Rupees (रू){% endblock %}
+{% block content %}
+
+<div class="hygiene-note">
+  <span>🧼</span>
+  <div><b>Hygiene &amp; food availability are protected here.</b>
+    Items marked <b>Sold Out</b> are genuinely unavailable today — no more last-minute surprises.
+    All prices are fixed &amp; transparent; your bill is itemised at checkout.</div>
+</div>
+
+<div class="menu-grid">
+  <div>
+    {% set cats = items|map(attribute='category')|unique|list %}
+    {% for cat in cats %}
+    <div class="cat-group">
+      <div class="cat-head">{{ cat }}</div>
+      {% for item in items if item.category == cat %}
+      <div class="item-row {% if not item.available %}soldout{% endif %}">
+        <span class="item-photo">
+          {% if item.photo %}<img src="{{ item.photo }}" alt="" loading="lazy"
+             onerror="this.style.display='none'">{% endif %}
+          <span class="em">{{ item.image }}</span>
+        </span>
+        <div class="info">
+          <b>{{ item.name }}</b>
+          <p>{{ item.description }}</p>
+        </div>
+        <div class="price">{{ item.price|npr }}</div>
+        {% if item.available %}
+        <div class="qty" data-id="{{ item.id }}">
+          <button type="button" onclick="changeQty({{ item.id }},-1)">−</button>
+          <span id="q-num-{{ item.id }}">0</span>
+          <button type="button" onclick="changeQty({{ item.id }},1)">+</button>
+        </div>
+        {% else %}
+        <span class="sold-tag">Sold out</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="cart-sticky">
+    <div class="cart-box">
+      <div class="cart-head"><span>🛒</span><h3>Your Order</h3></div>
+      <div class="cart-items" id="cart-items">
+        <div class="cart-empty" id="cart-empty">Your cart is empty.<br>Tap <b>+</b> to add items.</div>
+      </div>
+      <div class="cart-totals">
+        <div class="row"><span>Subtotal</span><span id="subtotal">रू 0</span></div>
+        <div class="row"><span>Service charge</span><span>रू 0</span></div>
+        <div class="row grand"><span>Total (NPR)</span><span id="grand">रू 0</span></div>
+      </div>
+      <div class="cart-foot">
+        <button class="btn" id="checkout-btn" onclick="openCheckout()" disabled style="opacity:.45">Proceed to Payment</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Checkout modal -->
+<div class="modal-backdrop" id="checkout-modal">
+  <div class="modal">
+    <div class="m-head">
+      <span>💳</span><h3>Checkout &amp; Payment (NPR)</h3>
+      <button class="x" onclick="closeCheckout()">✕</button>
+    </div>
+    <div class="m-body">
+      <div class="price-break" id="breakdown"></div>
+
+      <form method="post" action="{{ url_for('place_order') }}" id="order-form">
+        <input type="hidden" name="items" id="items-field" value="">
+
+        <div class="grid-2" style="gap:12px">
+          <div class="field">
+            <label>Pre-booking date</label>
+            <input type="date" name="booking_date" id="booking-date" min="{{ today }}" required>
+          </div>
+          <div class="field">
+            <label>Time slot</label>
+            <select name="time_slot" id="time-slot">
+              {% for s in slots %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Payment method</label>
+          <div class="pay-methods" id="pay-methods">
+            <label><input type="radio" name="method" value="card" checked onclick="payType('card')"><span class="em">💳</span> Card</label>
+            <label><input type="radio" name="method" value="esewa" onclick="payType('esewa')"><span class="em">🟣</span> eSewa</label>
+            <label><input type="radio" name="method" value="khalti" onclick="payType('khalti')"><span class="em">🔵</span> Khalti</label>
+            <label><input type="radio" name="method" value="cash" onclick="payType('cash')"><span class="em">💵</span> Cash at counter</label>
+          </div>
+        </div>
+
+        <div id="pay-fields">
+          <div class="field">
+            <label id="pay-name-label">Name on card</label>
+            <input type="text" name="payment_name" id="payment-name" placeholder="e.g. Samir Shrestha">
+          </div>
+          <div class="field">
+            <label id="pay-detail-label">Card number</label>
+            <input type="text" name="payment_detail" id="payment-detail" placeholder="e.g. 4123 0000 2026 1111" inputmode="numeric">
+          </div>
+        </div>
+        <div id="cash-note" style="display:none" class="muted">💵 Pay रू <b id="cash-amt">0</b> at the counter when you pick up. Booking creates a <b>pending</b> transaction.</div>
+      </form>
+    </div>
+    <div class="m-foot">
+      <button class="btn btn-ghost" onclick="closeCheckout()">Cancel</button>
+      <button class="btn btn-green" onclick="submitOrder()">✅ Place Order &amp; Pay</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let ITEMS = {};
+{% for item in items %}
+  {% if item.available %}
+  ITEMS[{{ item.id }}] = {name:{{ item.name|tojson }}, price:{{ item.price }}, em:{{ item.image|tojson }}};
+  {% endif %}
+{% endfor %}
+
+function fmt(n){return 'रू ' + Number(n).toLocaleString('en-IN');}
+
+function changeQty(id, d){
+  let q = (ITEMS[id].qty||0) + d;
+  if(q<0) q=0;
+  ITEMS[id].qty = q;
+  document.getElementById('q-num-'+id).textContent = q;
+  renderCart();
+}
+
+function renderCart(){
+  const wrap = document.getElementById('cart-items');
+  wrap.innerHTML='';
+  let sub=0, count=0;
+  for(const id in ITEMS){
+    const it=ITEMS[id];
+    if(!it.qty) continue;
+    count+=it.qty; sub+=it.price*it.qty;
+    const row=document.createElement('div');
+    row.className='cart-item';
+    row.innerHTML=`<span>${it.em} ${it.name} <span class="muted">× ${it.qty}</span></span>
+      <span>${fmt(it.price*it.qty)} <button class="x" onclick="changeQty(${id},-${Math.min(it.qty,it.qty)})">✕</button></span>`;
+    wrap.appendChild(row);
+  }
+  if(!count){
+    wrap.innerHTML='<div class="cart-empty">Your cart is empty.<br>Tap <b>+</b> to add items.</div>';
+  }
+  document.getElementById('subtotal').textContent=fmt(sub);
+  document.getElementById('grand').textContent=fmt(sub);
+  const btn=document.getElementById('checkout-btn');
+  btn.disabled=count===0;
+  btn.style.opacity = count===0 ? '.45':'1';
+}
+
+function openCheckout(){
+  let parts=[],sub=0;
+  for(const id in ITEMS){
+    const it=ITEMS[id];
+    if(!it.qty) continue;
+    sub+=it.price*it.qty;
+    parts.push(`${id}:${it.qty}`);
+  }
+  if(!parts.length) return;
+  document.getElementById('items-field').value=parts.join(',');
+  let html='';
+  for(const id in ITEMS){
+    const it=ITEMS[id];
+    if(!it.qty) continue;
+    html+=`<div class="summary-line"><span>${it.em} ${it.name} × ${it.qty}</span><span>${fmt(it.price*it.qty)}</span></div>`;
+  }
+  html+=`<div class="summary-line grand"><span>Total payable</span><span>${fmt(sub)}</span></div>`;
+  document.getElementById('breakdown').innerHTML='<b style="font-size:12px;display:block;margin-bottom:6px">Itemised bill — no hidden prices</b>'+html;
+  document.getElementById('cash-amt').textContent=fmt(sub);
+  document.getElementById('checkout-modal').classList.add('show');
+}
+
+function closeCheckout(){
+  document.getElementById('checkout-modal').classList.remove('show');
+}
+
+function payType(t){
+  const field=document.getElementById('pay-fields');
+  const note=document.getElementById('cash-note');
+  if(t==='cash'){
+    field.style.display='none';
+    note.style.display='block';
+  }else{
+    field.style.display='block';
+    note.style.display='none';
+  }
+  if(t==='esewa'){
+    document.getElementById('pay-name-label').textContent='eSewa full name';
+    document.getElementById('pay-detail-label').textContent='eSewa number (98XXXXXXXX)';
+    document.getElementById('payment-detail').placeholder='98XXXXXXXX';
+  }else if(t==='khalti'){
+    document.getElementById('pay-name-label').textContent='Khalti full name';
+    document.getElementById('pay-detail-label').textContent='Khalti number (98XXXXXXXX)';
+    document.getElementById('payment-detail').placeholder='98XXXXXXXX';
+  }else{
+    document.getElementById('pay-name-label').textContent='Name on card';
+    document.getElementById('pay-detail-label').textContent='Card number';
+    document.getElementById('payment-detail').placeholder='4123 0000 2026 1111';
+  }
+}
+
+function submitOrder(){
+  const date=document.getElementById('booking-date').value;
+  const slot=document.getElementById('time-slot').value;
+  if(!date){alert('Please pick a date for your pre-booking.');return;}
+  const m=document.querySelector('input[name="method"]:checked');
+  if(!m){alert('Please choose a payment method.');return;}
+  if(m.value!=='cash'){
+    const pn=document.getElementById('payment-name').value.trim();
+    const pd=document.getElementById('payment-detail').value.trim();
+    if(!pn||!pd){alert('Please fill in your payment details.');return;}
+  }
+  document.getElementById('order-form').submit();
+}
+
+document.querySelectorAll('.modal-backdrop').forEach(b=>{
+  b.addEventListener('click',(e)=>{if(e.target===b) b.classList.remove('show');});
+});
+renderCart();
+</script>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Menu Management{% endblock %}
+{% block pagetitle %}Menu &amp; Prices 🍽️{% endblock %}
+{% block crumb %}All prices in Nepali Rupees (रू) · fixed, no hikes{% endblock %}
+{% block content %}
+
+{% if can(user, 'menu_manage') %}
+<div class="card">
+  <div class="card-head"><h3>➕ Add new menu item</h3></div>
+  <div class="card-body">
+    <form method="post" class="inline-form" style="gap:12px">
+      <input type="text" name="name" placeholder="Item name" required style="flex:1;min-width:140px">
+      <select name="category" required>
+        <option value="Main Course">Main Course</option>
+        <option value="Snacks">Snacks</option>
+        <option value="Beverages">Beverages</option>
+        <option value="Healthy">Healthy</option>
+      </select>
+      <input type="number" name="price" step="0.01" min="1" placeholder="Price (NPR)" required style="width:130px">
+      <input type="text" name="image" placeholder="Emoji (e.g. 🍛)" style="width:90px">
+      <input type="text" name="description" placeholder="Short description" style="flex:1;min-width:160px">
+      <button class="btn">Add Item</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <h3>📋 Current menu ({{ items|length }} items)</h3><span class="spacer"></span>
+    <span class="muted">Toggle availability to prevent "not available" surprises</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead><tr><th>Item</th><th>Category</th><th>Description</th><th>Price (NPR)</th><th>Availability</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td><b>{{ item.image }} {{ item.name }}</b></td>
+          <td>{{ item.category }}</td>
+          <td class="muted" style="max-width:260px">{{ item.description }}</td>
+          <td class="num">{{ item.price|npr }}</td>
+          <td>
+            <span class="badge {{ 'green' if item.available else 'red' }}">{{ 'Available' if item.available else 'Sold out' }}</span>
+          </td>
+          <td>
+            <div class="inline-form">
+              <form method="post" action="{{ url_for('admin_toggle_item', item_id=item.id) }}">
+                <button class="btn btn-sm btn-ghost">{{ 'Mark sold out' if item.available else 'Mark available' }}</button>
+              </form>
+              {% if can(user, 'menu_manage') %}
+              <details style="position:relative">
+                <summary class="btn btn-sm btn-outline" style="list-style:none">Edit</summary>
+                <div class="card" style="position:absolute;right:0;top:40px;width:320px;z-index:50;box-shadow:var(--shadow-lg)">
+                  <form method="post" action="{{ url_for('admin_edit_item', item_id=item.id) }}" style="padding:14px">
+                    <div class="field"><label>Name</label>
+                      <input type="text" name="name" value="{{ item.name }}" required></div>
+                    <div class="field"><label>Category</label>
+                      <select name="category">
+                        {% for c in ['Main Course','Snacks','Beverages','Healthy'] %}
+                        <option {{ 'selected' if item.category==c }}>{{ c }}</option>
+                        {% endfor %}
+                      </select></div>
+                    <div class="field"><label>Description</label>
+                      <input type="text" name="description" value="{{ item.description }}"></div>
+                    <div class="field"><label>Price (NPR)</label>
+                      <input type="number" step="0.01" name="price" value="{{ item.price }}" required></div>
+                    <div class="field"><label>Emoji</label>
+                      <input type="text" name="image" value="{{ item.image }}"></div>
+                    <button class="btn btn-sm" style="width:100%">Save changes</button>
+                  </form>
+                </div>
+              </details>
+              <form method="post" action="{{ url_for('admin_delete_item', item_id=item.id) }}"
+                    onsubmit="return confirm('Delete {{ item.name }} permanently?')">
+                <button class="btn btn-sm btn-danger">Delete</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty"><span class="em">🍽️</span><p>No menu items yet.</p></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="muted">💡 Fixing "food not available" — staff marks items sold out here, and students see it instantly. If a student pre-booked an item you just marked sold out, their booking is still honoured.</div>
+
+{% endblock %}

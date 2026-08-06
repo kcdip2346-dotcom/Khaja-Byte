@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Home · Customer{% endblock %}
+{% block pagetitle %}Namaste, {{ user.name.split()[0] }}! 👋{% endblock %}
+{% block crumb %}Customer Dashboard · {{ college }}{% endblock %}
+{% block content %}
+
+<div class="hygiene-note">
+  <span>🧼</span>
+  <div><b>Kitchen hygiene rating: {{ "%.1f"|format(avg_rating) if avg_rating else "New" }} / 5
+    ({{ feedback_count }} reviews)</b>
+    Kitchen is audited every Friday. Spotted a hygiene issue? Flag it instantly in
+    <a href="{{ url_for('feedback_page') }}" style="color:var(--green);font-weight:700;text-decoration:underline">Feedback</a> — it goes straight to admin.</div>
+</div>
+
+<div class="grid-3" style="margin-bottom:22px">
+  <a class="stat-card" href="{{ url_for('menu_page') }}">
+    <div class="s-ico">🍽️</div>
+    <div><div class="s-val">Order now</div><div class="s-lbl">Menu &amp; pre-book in NPR</div></div>
+  </a>
+  <a class="stat-card" href="{{ url_for('bookings_page') }}">
+    <div class="s-ico">📅</div>
+    <div><div class="s-val">{{ bookings|length }}</div><div class="s-lbl">Recent bookings</div></div>
+  </a>
+  <a class="stat-card" href="{{ url_for('feedback_page') }}">
+    <div class="s-ico">💬</div>
+    <div><div class="s-val">Rate us</div><div class="s-lbl">Your voice = better canteen</div></div>
+  </a>
+</div>
+
+<div class="grid-2" style="gap:22px">
+  <div class="card">
+    <div class="card-head"><h3>📢 Latest announcements</h3><span class="spacer"></span>
+      <a href="{{ url_for('announcements_page') }}" class="small">View all →</a></div>
+    <div class="card-body" style="padding-top:14px">
+      {% for a in anns %}
+      <div class="ann-card" style="box-shadow:none;border:1px solid var(--ivory-200)">
+        <div class="ann-ico {% if loop.first %}live{% endif %}">📢</div>
+        <div>
+          <b>{{ a.title }}</b>
+          <p>{{ a.body }}</p>
+          <div class="meta">By {{ a.author }} · {{ a.created_at }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty"><span class="em">📭</span><p>No announcements yet.</p></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head"><h3>💳 Recent transactions</h3><span class="spacer"></span>
+        <a href="{{ url_for('transactions_page') }}" class="small">View all →</a></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Reference</th><th>Method</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for t in txns %}
+            <tr>
+              <td class="mono">{{ t.txn_ref }}</td>
+              <td>{{ t.method }}</td>
+              <td class="num">{{ t.amount|npr }}</td>
+              <td><span class="badge {{ 'green' if t.status=='success' else 'amber' }}">{{ t.status }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty" style="padding:24px"><span class="em">🧾</span><p>No transactions yet — place your first order!</p></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>📅 My recent bookings</h3><span class="spacer"></span>
+        <a href="{{ url_for('bookings_page') }}" class="small">View all →</a></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Date / Slot</th><th>Total</th><th>Status</th><th>Payment</th></tr></thead>
+          <tbody>
+            {% for b in bookings %}
+            <tr>
+              <td class="mono">#KB{{ "%04d"|format(b.id) }}</td>
+              <td>{{ b.booking_date }} · {{ b.time_slot }}</td>
+              <td class="num">{{ b.total|npr }}</td>
+              <td><span class="badge {{ 'green' if b.status=='confirmed' else ('blue' if b.status=='pending' else ('red' if b.status=='cancelled' else 'ivory')) }}">{{ b.status }}</span></td>
+              <td><span class="badge {{ 'green' if b.payment_status=='paid' else 'amber' }}">{{ b.payment_status }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty" style="padding:24px"><span class="em">🍴</span><p>No bookings yet.</p></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="text-align:center;margin-top:8px">
+  <a href="{{ url_for('menu_page') }}" class="btn">🍽️ Browse Menu &amp; Pre-book Lunch</a>
+</div>
+
+{% endblock %}

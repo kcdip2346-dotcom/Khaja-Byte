@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}My Profile{% endblock %}
+{% block pagetitle %}My Profile 👤{% endblock %}
+{% block crumb %}Account settings{% endblock %}
+{% block content %}
+
+<div class="grid-2" style="gap:22px;align-items:start">
+  <div class="card">
+    <div class="card-head"><h3>Account details</h3></div>
+    <div class="card-body">
+      <form method="post">
+        <div class="field">
+          <label>Full name</label>
+          <input type="text" name="name" value="{{ user.name }}">
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" value="{{ user.email }}" disabled>
+          <div class="hint">Email cannot be changed.</div>
+        </div>
+        <div class="field">
+          <label>Role</label>
+          <input type="text" value="{{ user.role|capitalize }}" disabled>
+        </div>
+        <div class="field">
+          <label>Member since</label>
+          <input type="text" value="{{ user.created_at }}" disabled>
+        </div>
+        <button class="btn">Save name</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>🔒 Change password</h3></div>
+    <div class="card-body">
+      <form method="post">
+        <div class="field">
+          <label>Current password</label>
+          <input type="password" name="current_password" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label>New password (min 6 characters)</label>
+          <input type="password" name="new_password" autocomplete="new-password">
+        </div>
+        <button class="btn btn-danger">Change password</button>
+      </form>
+      <div class="divider"></div>
+      <div class="muted small">Changing your password logs you out for security. You'll need to log in again.</div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

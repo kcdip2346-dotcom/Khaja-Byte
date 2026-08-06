@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+khajabyte.db
+.env
+*.log
+build/
+.vscode/
+.idea/

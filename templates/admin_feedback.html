@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Feedback Review{% endblock %}
+{% block pagetitle %}Feedback Review 💬{% endblock %}
+{% block crumb %}Student voices — hygiene flags first{% endblock %}
+{% block content %}
+
+<div class="hygiene-note">
+  <span>🧼</span>
+  <div><b>Hygiene reports are shown first and highlighted red.</b>
+    Reply to every student — responsiveness is part of fixing the canteen's reputation.</div>
+</div>
+
+{% for f in feedbacks %}
+<div class="fb-card" {% if f.hygiene_issue and f.status=='new' %}style="border:2px solid var(--red);box-shadow:0 6px 20px rgba(214,69,69,.15)"{% endif %}>
+  <div class="fb-top">
+    <b>{{ f.uname }}</b>
+    <span class="stars">{{ '★' * f.rating }}<span class="off">{{ '★' * (5 - f.rating) }}</span></span>
+    {% if f.hygiene_issue %}<span class="badge red">🧼 Hygiene flagged</span>{% endif %}
+    <span class="spacer" style="flex:1"></span>
+    <span class="badge {{ 'green' if f.status=='responded' else ('blue' if f.status=='read' else 'red') }}">{{ f.status }}</span>
+  </div>
+  <p class="fb-comment">{{ f.comment }}</p>
+  <div class="fb-meta">{{ f.created_at }}</div>
+  {% if f.response %}
+  <div class="fb-reply"><b>Your reply:</b> {{ f.response }}</div>
+  {% endif %}
+  <form method="post" action="{{ url_for('admin_feedback_respond', fb_id=f.id) }}" class="inline-form" style="margin-top:12px">
+    <input type="text" name="response" value="{{ f.response }}" placeholder="Reply to this student…" style="flex:1;min-width:200px">
+    <button class="btn btn-sm">{{ 'Update reply' if f.response else 'Reply' }}</button>
+  </form>
+</div>
+{% else %}
+<div class="empty"><span class="em">💬</span><p>No feedback yet — students will start sharing soon!</p></div>
+{% endfor %}
+
+{% endblock %}

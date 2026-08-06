@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Announcements{% endblock %}
+{% block pagetitle %}Announcements 📢{% endblock %}
+{% block crumb %}Official updates from the canteen team{% endblock %}
+{% block content %}
+
+{% for a in anns %}
+<div class="ann-card">
+  <div class="ann-ico {% if loop.first %}live{% endif %}">📢</div>
+  <div>
+    <b>{{ a.title }}</b>
+    <p>{{ a.body }}</p>
+    <div class="meta">Published by {{ a.author }} · {{ a.created_at }}{% if loop.first %} · 🔴 Latest{% endif %}</div>
+  </div>
+</div>
+{% else %}
+<div class="empty"><span class="em">📭</span><p>No announcements yet.</p></div>
+{% endfor %}
+
+{% endblock %}
