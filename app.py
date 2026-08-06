@@ -74,7 +74,7 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'customer',
-            wallet_balance REAL DEFAULT 0,
+            credit_points INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -170,10 +170,10 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE IF NOT EXISTS wallet_transactions (
+        CREATE TABLE IF NOT EXISTS credit_points_transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            amount REAL NOT NULL,
+            points INTEGER NOT NULL,
             type TEXT NOT NULL,
             booking_id INTEGER DEFAULT NULL,
             created_at TEXT DEFAULT (datetime('now'))
@@ -206,7 +206,7 @@ def init_db():
     ensure_column("menu_items", "photo", "photo TEXT DEFAULT ''")
     ensure_column("bookings", "items_json", "items_json TEXT DEFAULT '[]'")
     ensure_column("users", "uid", "uid TEXT DEFAULT ''")
-    ensure_column("users", "wallet_balance", "wallet_balance REAL DEFAULT 0")
+    ensure_column("users", "credit_points", "credit_points INTEGER DEFAULT 0")
     ensure_column("menu_items", "canteen_id", "canteen_id INTEGER DEFAULT 1")
     ensure_column("menu_items", "prep_time", "prep_time INTEGER DEFAULT 15")
     ensure_column("menu_items", "daily_quantity", "daily_quantity INTEGER DEFAULT 0")
@@ -226,9 +226,9 @@ def init_db():
     # --- Seed default settings ---
     if cur.execute("SELECT COUNT(*) FROM settings").fetchone()[0] == 0:
         cur.execute("INSERT INTO settings (key, value) VALUES (?,?)",
-                    ("min_topup", "100"))
+                    ("points_per_npr", "1"))
         cur.execute("INSERT INTO settings (key, value) VALUES (?,?)",
-                    ("max_topup", "5000"))
+                    ("points_value_npr", "1"))
 
     # Demo users get distinct names and stable unique identifiers (ING-<ROLE>-<id>)
     def upsert_demo_user(name, email, pw, role, uid):
@@ -1122,7 +1122,7 @@ def api_require_roles(user, *roles):
 def api_user_dict(u):
     return {"id": u["id"], "name": u["name"], "email": u["email"],
             "role": u["role"], "uid": u["uid"],
-            "wallet_balance": u["wallet_balance"] if "wallet_balance" in u.keys() else 0,
+            "credit_points": u["credit_points"] if "credit_points" in u.keys() else 0,
             "created_at": u["created_at"]}
 
 
@@ -1293,13 +1293,13 @@ def api_order():
     else:
         payment_status = "unpaid"
 
-    # Wallet redemption
-    wallet_discount = 0
+    # Credit points redemption (1 point = 1 NPR discount)
+    points_discount = 0
     redeem_points = data.get("redeem_points", 0)
     if redeem_points > 0:
-        user_wallet = user["wallet_balance"] if "wallet_balance" in user.keys() else 0
-        wallet_discount = min(float(redeem_points), user_wallet)
-        total = max(0, total - wallet_discount)
+        user_points = user["credit_points"] if "credit_points" in user.keys() else 0
+        points_discount = min(int(redeem_points), user_points)
+        total = max(0, total - points_discount)
 
     txn_ref = "KB-" + secrets.token_hex(3).upper()
     cur = db.execute(
@@ -1313,11 +1313,17 @@ def api_order():
         (txn_ref, user["id"], booking_id, total, method,
          "success" if payment_status == "paid" else "pending"))
 
-    # Wallet redemption transaction
-    if wallet_discount > 0:
-        db.execute("UPDATE users SET wallet_balance = wallet_balance - ? WHERE id=?", (wallet_discount, user["id"]))
-        db.execute("INSERT INTO wallet_transactions (user_id, amount, type, booking_id) VALUES (?,?,?,?)",
-                   (user["id"], -wallet_discount, "redeem", booking_id))
+    # Credit points: earn 1 point per 10 NPR spent, redeem for discount
+    pts_per_npr = float(db.execute("SELECT value FROM settings WHERE key='points_per_npr'").fetchone()["value"])
+    points_earned = int(total * pts_per_npr)
+    if points_earned > 0:
+        db.execute("UPDATE users SET credit_points = credit_points + ? WHERE id=?", (points_earned, user["id"]))
+        db.execute("INSERT INTO credit_points_transactions (user_id, points, type, booking_id) VALUES (?,?,?,?)",
+                   (user["id"], points_earned, "earn", booking_id))
+    if points_discount > 0:
+        db.execute("UPDATE users SET credit_points = credit_points - ? WHERE id=?", (points_discount, user["id"]))
+        db.execute("INSERT INTO credit_points_transactions (user_id, points, type, booking_id) VALUES (?,?,?,?)",
+                   (user["id"], points_discount, "redeem", booking_id))
 
     # Queue estimation: count pending orders for today at same canteen
     today = datetime.date.today().isoformat()
@@ -1329,8 +1335,8 @@ def api_order():
     db.commit()
     return jsonify({"booking_id": booking_id, "txn_ref": txn_ref,
                     "total": total, "payment_status": payment_status,
-                    "wallet_used": wallet_discount,
-                    "wallet_balance": (user["wallet_balance"] if "wallet_balance" in user.keys() else 0) - wallet_discount,
+                    "points_earned": points_earned, "points_redeemed": points_discount,
+                    "points_balance": (user["credit_points"] if "credit_points" in user.keys() else 0) + points_earned - points_discount,
                     "prep_time": total_prep_time, "queue_wait": queue_wait_minutes})
 
 
@@ -1885,35 +1891,17 @@ def api_admin_settings():
 # Wallet & Notifications
 # --------------------------------------------------------------------------
 
-@app.route("/api/wallet", methods=["GET"])
-def api_wallet():
+@app.route("/api/points", methods=["GET"])
+def api_points():
     user, err = api_require_user()
     if err:
         return jsonify(err[0]), err[1]
     db = get_db()
     rows = db.execute(
-        "SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
+        "SELECT * FROM credit_points_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
         (user["id"],)).fetchall()
-    return jsonify({"balance": user["wallet_balance"] if "wallet_balance" in user.keys() else 0,
+    return jsonify({"points": user["credit_points"] if "credit_points" in user.keys() else 0,
                     "history": [dict(r) for r in rows]})
-
-
-@app.route("/api/wallet/topup", methods=["POST"])
-def api_wallet_topup():
-    user, err = api_require_user()
-    if err:
-        return jsonify(err[0]), err[1]
-    data = request.get_json(silent=True) or {}
-    amount = data.get("amount", 0)
-    if not amount or amount <= 0:
-        return jsonify({"error": "Amount must be greater than 0"}), 400
-    db = get_db()
-    db.execute("UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?", (amount, user["id"]))
-    db.execute("INSERT INTO wallet_transactions (user_id, amount, type) VALUES (?,?,?)",
-               (user["id"], amount, "topup"))
-    db.commit()
-    new_balance = db.execute("SELECT wallet_balance FROM users WHERE id=?", (user["id"],)).fetchone()["wallet_balance"]
-    return jsonify({"ok": True, "balance": new_balance})
 
 
 @app.route("/api/notifications", methods=["GET"])
