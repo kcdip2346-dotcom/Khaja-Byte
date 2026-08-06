@@ -74,6 +74,17 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'customer',
+            wallet_balance REAL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS canteens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            location TEXT NOT NULL,
+            open_time TEXT DEFAULT '09:00',
+            close_time TEXT DEFAULT '17:00',
+            active INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -83,9 +94,13 @@ def init_db():
             category TEXT NOT NULL,
             description TEXT DEFAULT '',
             price REAL NOT NULL,
+            own_cup_price REAL DEFAULT NULL,
             available INTEGER DEFAULT 1,
             image TEXT DEFAULT '🍽️',
             photo TEXT DEFAULT '',
+            canteen_id INTEGER DEFAULT 1,
+            prep_time INTEGER DEFAULT 15,
+            daily_quantity INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -99,6 +114,7 @@ def init_db():
             total REAL NOT NULL,
             status TEXT DEFAULT 'pending',
             payment_status TEXT DEFAULT 'unpaid',
+            canteen_id INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -121,6 +137,8 @@ def init_db():
             hygiene_issue INTEGER DEFAULT 0,
             status TEXT DEFAULT 'new',
             response TEXT DEFAULT '',
+            photo TEXT DEFAULT '',
+            booking_id INTEGER DEFAULT NULL,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -137,6 +155,44 @@ def init_db():
             user_id INTEGER NOT NULL,
             created_at TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS offers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            canteen_id INTEGER DEFAULT 1,
+            title TEXT NOT NULL,
+            body TEXT DEFAULT '',
+            discount_pct INTEGER DEFAULT 0,
+            menu_item_id INTEGER DEFAULT NULL,
+            start_date TEXT DEFAULT '',
+            end_date TEXT DEFAULT '',
+            active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            type TEXT NOT NULL,
+            booking_id INTEGER DEFAULT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            booking_id INTEGER DEFAULT NULL,
+            read INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
         """
     )
 
@@ -149,6 +205,28 @@ def init_db():
     ensure_column("menu_items", "photo", "photo TEXT DEFAULT ''")
     ensure_column("bookings", "items_json", "items_json TEXT DEFAULT '[]'")
     ensure_column("users", "uid", "uid TEXT DEFAULT ''")
+    ensure_column("users", "wallet_balance", "wallet_balance REAL DEFAULT 0")
+    ensure_column("menu_items", "canteen_id", "canteen_id INTEGER DEFAULT 1")
+    ensure_column("menu_items", "prep_time", "prep_time INTEGER DEFAULT 15")
+    ensure_column("menu_items", "daily_quantity", "daily_quantity INTEGER DEFAULT 0")
+    ensure_column("menu_items", "own_cup_price", "own_cup_price REAL DEFAULT NULL")
+    ensure_column("bookings", "canteen_id", "canteen_id INTEGER DEFAULT 1")
+    ensure_column("feedback", "photo", "photo TEXT DEFAULT ''")
+    ensure_column("feedback", "booking_id", "booking_id INTEGER DEFAULT NULL")
+
+    # --- Seed default canteens ---
+    if cur.execute("SELECT COUNT(*) FROM canteens").fetchone()[0] == 0:
+        cur.execute("INSERT INTO canteens (name, location, open_time, close_time) VALUES (?,?,?,?)",
+                    ("Ground Floor", "Main Building", "09:00", "17:00"))
+        cur.execute("INSERT INTO canteens (name, location, open_time, close_time) VALUES (?,?,?,?)",
+                    ("B1 Canteen", "Basement 1", "09:00", "17:00"))
+
+    # --- Seed default settings ---
+    if cur.execute("SELECT COUNT(*) FROM settings").fetchone()[0] == 0:
+        cur.execute("INSERT INTO settings (key, value) VALUES (?,?)",
+                    ("min_topup", "100"))
+        cur.execute("INSERT INTO settings (key, value) VALUES (?,?)",
+                    ("max_topup", "5000"))
 
     # Demo users get distinct names and stable unique identifiers (ING-<ROLE>-<id>)
     def upsert_demo_user(name, email, pw, role, uid):
@@ -177,57 +255,120 @@ def init_db():
         pass  # demo users are handled by upsert_demo_user above
 
     if cur.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0] == 0:
+        # Full menu: (name, category, description, price, image, photo, canteen_id, prep_time, own_cup_price)
         menu = [
-            ("Steam Momo", "Snacks", "Juicy steamed dumplings with spicy achar", 120, "🥟",
-             "https://images.unsplash.com/photo-1496116218417-1a781b1c416c?auto=format&fit=crop&w=600&q=80"),
-            ("Chicken Chowmein", "Main Course", "Nepali-style wok fried noodles", 150, "🍜",
-             "https://images.unsplash.com/photo-1585032226651-759b368d7246?auto=format&fit=crop&w=600&q=80"),
-            ("Vegetable Thukpa", "Main Course", "Warm noodle soup with fresh veggies", 160, "🍲",
-             "https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=600&q=80"),
-            ("Samosa (2 pcs)", "Snacks", "Crispy fried pastry with potato filling", 40, "🥠",
-             "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80"),
-            ("Paneer Sekuwa", "Main Course", "Grilled paneer with Himalayan spices", 220, "🧀", ""),
-            ("Chicken Biryani", "Main Course", "Aromatic basmati rice with chicken", 280, "🍛",
-             "https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=600&q=80"),
-            ("Dal Bhat", "Main Course", "Lentil soup, rice & seasonal vegetables", 180, "🍚",
-             "https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=600&q=80"),
-            ("Masala Tea", "Beverages", "Traditional Nepali spiced milk tea", 40, "☕",
-             "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80"),
-            ("Coca-Cola", "Beverages", "Classic cola, chilled 500ml", 80, "🥤",
-             "https://images.unsplash.com/photo-1554866585-cd94860890b7?auto=format&fit=crop&w=600&q=80"),
-            ("Fanta Orange", "Beverages", "Orange fizz, chilled 500ml", 80, "🧡",
-             "https://images.unsplash.com/photo-1629203851122-3727ecdf080e?auto=format&fit=crop&w=600&q=80"),
-            ("Sprite", "Beverages", "Lemon-lime soda, chilled 500ml", 80, "💛",
-             "https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?auto=format&fit=crop&w=600&q=80"),
-            ("Thumbs Up", "Beverages", "Indian cola, chilled 500ml", 70, "👍",
-             ""),
-            ("Limca", "Beverages", "Indian lemon soda, chilled 500ml", 70, "🍋",
-             ""),
-            ("Frooti", "Beverages", "Mango drink, chilled 500ml", 90, "🥭",
-             ""),
-            ("Maaza", "Beverages", "Mango crush, chilled 500ml", 90, "🥭",
-             ""),
-            ("Fruit Salad", "Healthy", "Fresh seasonal fruits with yogurt", 90, "🥗",
-             "https://images.unsplash.com/photo-1490474418585-ba9bad8fd0ea?auto=format&fit=crop&w=600&q=80"),
+            # === GROUND FLOOR CANTEEN (canteen_id=1) ===
+            # Light Bites - Vegetarian
+            ("French Fries", "Light Bites", "Crispy golden fries with seasoning", 160, "🍟", "", 1, 10, None),
+            ("ING Special Aloo", "Light Bites", "Signature spiced potato fry", 120, "🥔", "", 1, 10, None),
+            ("Chips Chilli", "Light Bites", "Potato chips tossed in chilli sauce", 180, "🌶️", "", 1, 10, None),
+            # Light Bites - Non-Vegetarian
+            ("Popcorn Chicken", "Light Bites", "Bite-sized crispy chicken pieces", 170, "🍗", "", 1, 12, None),
+            ("Chicken Sausage", "Light Bites", "Grilled chicken sausage", 60, "🌭", "", 1, 8, None),
+            ("Chicken Chilli", "Light Bites", "Indo-Chinese chilli chicken", 240, "🍗", "", 1, 15, None),
+            ("Sausage Chilli", "Light Bites", "Sausages tossed in chilli sauce", 225, "🌭", "", 1, 15, None),
+            # Light Bites - Pasta
+            ("Bolognese (Chicken)", "Light Bites", "Rich chicken meat sauce pasta", 270, "🍝", "", 1, 18, None),
+            ("Alfredo (Creamy Chicken)", "Light Bites", "Creamy white sauce with chicken", 270, "🍝", "", 1, 18, None),
+            ("Alfredo (Creamy Veg)", "Light Bites", "Creamy white sauce vegetarian pasta", 270, "🍝", "", 1, 15, None),
+            ("Arrabiatta (Spicy Veg)", "Light Bites", "Spicy tomato sauce pasta", 210, "🍝", "", 1, 15, None),
+            # Mains - Rice & Noodles
+            ("Veg Rice", "Mains", "Steamed rice with vegetable stir-fry", 120, "🍚", "", 1, 12, None),
+            ("Egg Rice", "Mains", "Egg fried rice with vegetables", 135, "🍳", "", 1, 12, None),
+            ("Chicken Rice", "Mains", "Chicken fried rice with vegetables", 165, "🍗", "", 1, 15, None),
+            ("Mixed Rice", "Mains", "Mixed fried rice with egg & chicken", 195, "🍚", "", 1, 18, None),
+            ("Popcorn Chicken Rice Bowl", "Mains", "Crispy chicken over seasoned rice", 210, "🍗", "", 1, 18, None),
+            ("ING Rice Bowl", "Mains", "Signature rice bowl special", 175, "🍚", "", 1, 15, None),
+            # Mains - Combo Meals
+            ("Non Veg Premium", "Mains", "Full non-veg meal with sides", 275, "🍱", "", 1, 20, None),
+            ("Non Veg Regular", "Mains", "Regular non-veg meal", 220, "🍱", "", 1, 18, None),
+            ("Veg Premium", "Mains", "Full veg meal with sides", 250, "🍱", "", 1, 18, None),
+            ("Veg Regular", "Mains", "Regular veg meal", 190, "🍱", "", 1, 15, None),
+            # Mains - Add Ons
+            ("Chicken Add-on", "Add Ons", "Extra chicken serving", 100, "🍗", "", 1, 8, None),
+            ("Egg Add-on", "Add Ons", "Extra fried egg", 50, "🍳", "", 1, 5, None),
+            ("Cheese Add-on", "Add Ons", "Extra cheese topping", 60, "🧀", "", 1, 3, None),
+            # MO:MO
+            ("Steam Mo:Mo (Veg)", "MO:MO", "Steamed veg dumplings with achar", 100, "🥟", "", 1, 12, None),
+            ("Steam Mo:Mo (Chicken)", "MO:MO", "Steamed chicken dumplings with achar", 150, "🥟", "", 1, 15, None),
+            ("Steam Mo:Mo (Buff)", "MO:MO", "Steamed buff dumplings with achar", 140, "🥟", "", 1, 15, None),
+            ("Kothey Mo:Mo (Veg)", "MO:MO", "Pan-fried veg dumplings", 110, "🥟", "", 1, 12, None),
+            ("Kothey Mo:Mo (Chicken)", "MO:MO", "Pan-fried chicken dumplings", 160, "🥟", "", 1, 15, None),
+            ("Kothey Mo:Mo (Buff)", "MO:MO", "Pan-fried buff dumplings", 150, "🥟", "", 1, 15, None),
+            ("Fried Mo:Mo (Veg)", "MO:MO", "Deep-fried crispy veg dumplings", 120, "🥟", "", 1, 12, None),
+            ("Fried Mo:Mo (Chicken)", "MO:MO", "Deep-fried crispy chicken dumplings", 170, "🥟", "", 1, 15, None),
+            ("Fried Mo:Mo (Buff)", "MO:MO", "Deep-fried crispy buff dumplings", 160, "🥟", "", 1, 15, None),
+            ("Jhol Mo:Mo (Veg)", "MO:MO", "Veg dumplings in spicy broth", 120, "🥟", "", 1, 12, None),
+            ("Jhol Mo:Mo (Chicken)", "MO:MO", "Chicken dumplings in spicy broth", 170, "🥟", "", 1, 15, None),
+            ("Jhol Mo:Mo (Buff)", "MO:MO", "Buff dumplings in spicy broth", 160, "🥟", "", 1, 15, None),
+            ("C Mo:Mo (Veg)", "MO:MO", "Chilli veg dumplings", 135, "🥟", "", 1, 12, None),
+            ("C Mo:Mo (Chicken)", "MO:MO", "Chilli chicken dumplings", 185, "🥟", "", 1, 15, None),
+            ("C Mo:Mo (Buff)", "MO:MO", "Chilli buff dumplings", 165, "🥟", "", 1, 15, None),
+            ("Fried Chilli Mo:Mo (Veg)", "MO:MO", "Fried chilli veg dumplings", 135, "🥟", "", 1, 12, None),
+            ("Fried Chilli Mo:Mo (Chicken)", "MO:MO", "Fried chilli chicken dumplings", 185, "🥟", "", 1, 15, None),
+            ("Fried Chilli Mo:Mo (Buff)", "MO:MO", "Fried chilli buff dumplings", 165, "🥟", "", 1, 15, None),
+            # Popcorn Menu
+            ("Plain Popcorn (Small)", "Popcorn", "Lightly salted popcorn", 55, "🍿", "", 1, 5, None),
+            ("Plain Popcorn (Large)", "Popcorn", "Lightly salted popcorn large", 90, "🍿", "", 1, 5, None),
+            ("Cheese Popcorn (Small)", "Popcorn", "Cheese flavored popcorn", 100, "🍿", "", 1, 5, None),
+            ("Cheese Popcorn (Large)", "Popcorn", "Cheese flavored popcorn large", 150, "🍿", "", 1, 5, None),
+            # Beverages
+            ("Masala Tea", "Beverages", "Traditional Nepali spiced milk tea", 40, "☕", "", 1, 5, None),
+            ("Black Tea", "Beverages", "Classic black tea", 40, "☕", "", 1, 3, 25),
+            ("Espresso", "Beverages", "Single shot espresso", 105, "☕", "", 1, 5, 90),
+            ("Americano", "Beverages", "Espresso with hot water", 110, "☕", "", 1, 5, 95),
+            ("Cappuccino", "Beverages", "Espresso with steamed milk foam", 150, "☕", "", 1, 7, 135),
+            ("Cafe Latte", "Beverages", "Espresso with steamed milk", 150, "☕", "", 1, 7, 135),
+            ("Caramel Latte", "Beverages", "Latte with caramel syrup", 180, "☕", "", 1, 7, 165),
+            ("Cafe Mocha", "Beverages", "Chocolate espresso drink", 210, "☕", "", 1, 7, 195),
+            ("Hot Chocolate", "Beverages", "Rich hot chocolate", 150, "☕", "", 1, 5, 135),
+            ("Mocha Madness", "Beverages", "Ultimate chocolate coffee", 280, "☕", "", 1, 8, 265),
+            ("Coca-Cola", "Beverages", "Classic cola, chilled 500ml", 80, "🥤", "", 1, 2, None),
+            ("Fanta Orange", "Beverages", "Orange fizz, chilled 500ml", 80, "🧡", "", 1, 2, None),
+            ("Sprite", "Beverages", "Lemon-lime soda, chilled 500ml", 80, "💛", "", 1, 2, None),
+            ("Thumbs Up", "Beverages", "Indian cola, chilled 500ml", 70, "👍", "", 1, 2, None),
+            ("Limca", "Beverages", "Indian lemon soda, chilled 500ml", 70, "🍋", "", 1, 2, None),
+            ("Frooti", "Beverages", "Mango drink, chilled 500ml", 90, "🥭", "", 1, 2, None),
+            ("Maaza", "Beverages", "Mango crush, chilled 500ml", 90, "🥭", "", 1, 2, None),
+            ("Fruit Salad", "Healthy", "Fresh seasonal fruits with yogurt", 90, "🥗", "", 1, 5, None),
+
+            # === B1 CANTEEN (canteen_id=2) ===
+            # Bakery
+            ("Veg Patty", "Bakery", "Spiced potato patty in pastry", 125, "🥐", "", 2, 5, None),
+            ("Chicken Patty", "Bakery", "Chicken filled patty", 130, "🥐", "", 2, 5, None),
+            ("Chocolate Danish", "Bakery", "Flaky danish with chocolate", 120, "🍫", "", 2, 3, None),
+            ("Chocolate Donut", "Bakery", "Chocolate glazed donut", 55, "🍩", "", 2, 2, None),
+            ("Cream Donut", "Bakery", "Cream filled donut", 55, "🍩", "", 2, 2, None),
+            ("Chocolate Muffin", "Bakery", "Rich chocolate muffin", 65, "🧁", "", 2, 2, None),
+            ("Vanilla Muffin", "Bakery", "Classic vanilla muffin", 65, "🧁", "", 2, 2, None),
+            # B1 Light Bites
+            ("Veg Sandwich", "Light Bites", "Grilled veg sandwich", 55, "🥪", "", 2, 5, None),
+            ("Paneer Roll", "Light Bites", "Paneer wrap with spices", 175, "🌯", "", 2, 8, None),
+            ("Spicy Veg Burger", "Light Bites", "Veg patty burger with cheese", 230, "🍔", "", 2, 10, None),
+            ("Spicy Chicken Burger", "Light Bites", "Crispy chicken burger with cheese", 250, "🍔", "", 2, 12, None),
+            ("Chicken Sandwich", "Light Bites", "Grilled chicken sandwich", 100, "🥪", "", 2, 8, None),
+            ("Chicken Roll", "Light Bites", "Chicken wrap with spices", 190, "🌯", "", 2, 8, None),
+            # B1 Beverages (with BYO cup pricing)
+            ("Lemon Iced Tea", "Beverages", "Refreshing lemon iced tea", 90, "🧋", "", 2, 3, 75),
+            ("Peach Iced Tea", "Beverages", "Peach flavored iced tea", 180, "🧋", "", 2, 3, 165),
+            ("Lemonade", "Beverages", "Fresh lemonade", 160, "🍋", "", 2, 3, 145),
+            ("Watermelon Juice", "Beverages", "Fresh watermelon juice", 100, "🍉", "", 2, 3, 85),
+            ("Virgin Mojito", "Beverages", "Mint lime mocktail", 180, "🍹", "", 2, 3, 165),
+            ("Iced Americano", "Beverages", "Chilled americano", 120, "☕", "", 2, 3, 105),
+            ("Iced Cappuccino", "Beverages", "Chilled cappuccino", 160, "☕", "", 2, 3, 145),
+            ("Iced Latte", "Beverages", "Chilled cafe latte", 160, "☕", "", 2, 3, 145),
+            ("Iced Caramel Latte", "Beverages", "Chilled caramel latte", 190, "☕", "", 2, 3, 175),
+            ("Iced Mocha", "Beverages", "Chilled chocolate mocha", 220, "☕", "", 2, 3, 205),
+            ("CoolRouni Kulfi", "Beverages", "Traditional kulfi ice cream", 80, "🍦", "", 2, 2, None),
+            # B1 Specials
+            ("Pakistani Chicken Biryani", "Mains", "Aromatic Pakistani style biryani", 195, "🍛", "", 2, 20, None),
+            ("Chicken Khana Set", "Mains", "Complete chicken meal with sides", 220, "🍱", "", 2, 20, None),
+            ("Veg Khana Set", "Mains", "Complete veg meal with sides", 150, "🍱", "", 2, 18, None),
         ]
         cur.executemany(
-            "INSERT INTO menu_items (name, category, description, price, image, photo) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO menu_items (name, category, description, price, image, photo, canteen_id, prep_time, own_cup_price) VALUES (?,?,?,?,?,?,?,?,?)",
             menu,
         )
-    else:
-        photos = {
-            "Steam Momo": "https://images.unsplash.com/photo-1496116218417-1a781b1c416c?auto=format&fit=crop&w=600&q=80",
-            "Chicken Chowmein": "https://images.unsplash.com/photo-1585032226651-759b368d7246?auto=format&fit=crop&w=600&q=80",
-            "Vegetable Thukpa": "https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=600&q=80",
-            "Samosa (2 pcs)": "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80",
-            "Chicken Biryani": "https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=600&q=80",
-            "Dal Bhat": "https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=600&q=80",
-            "Masala Tea": "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80",
-            "Fruit Salad": "https://images.unsplash.com/photo-1490474418585-ba9bad8fd0ea?auto=format&fit=crop&w=600&q=80",
-        }
-        for name, url in photos.items():
-            cur.execute("UPDATE menu_items SET photo=? WHERE name=? AND (photo IS NULL OR photo='')",
-                        (url, name))
 
     if cur.execute("SELECT COUNT(*) FROM announcements").fetchone()[0] == 0:
         cur.execute(
@@ -946,14 +1087,19 @@ def api_require_roles(user, *roles):
 def api_user_dict(u):
     return {"id": u["id"], "name": u["name"], "email": u["email"],
             "role": u["role"], "uid": u["uid"],
+            "wallet_balance": u["wallet_balance"] if "wallet_balance" in u.keys() else 0,
             "created_at": u["created_at"]}
 
 
 def api_item_dict(i):
     return {"id": i["id"], "name": i["name"], "category": i["category"],
             "description": i["description"], "price": i["price"],
+            "own_cup_price": i["own_cup_price"] if "own_cup_price" in i.keys() else None,
             "available": bool(i["available"]), "image": i["image"],
-            "photo": i["photo"]}
+            "photo": i["photo"],
+            "canteen_id": i["canteen_id"] if "canteen_id" in i.keys() else 1,
+            "prep_time": i["prep_time"] if "prep_time" in i.keys() else 15,
+            "daily_quantity": i["daily_quantity"] if "daily_quantity" in i.keys() else 0}
 
 
 def api_booking_dict(b):
@@ -963,6 +1109,7 @@ def api_booking_dict(b):
             "status": b["status"], "payment_status": b["payment_status"],
             "created_at": b["created_at"],
             "items_json": b["items_json"],
+            "canteen_id": b["canteen_id"] if "canteen_id" in b.keys() else 1,
             "uname": b["uname"] if "uname" in b.keys() else None,
             "uemail": b["uemail"] if "uemail" in b.keys() else None}
 
@@ -972,7 +1119,9 @@ def api_feedback_dict(f):
             "uname": f["uname"] if "uname" in f.keys() else None,
             "rating": f["rating"], "comment": f["comment"],
             "hygiene_issue": bool(f["hygiene_issue"]), "status": f["status"],
-            "response": f["response"], "created_at": f["created_at"]}
+            "response": f["response"], "photo": f["photo"] if "photo" in f.keys() else "",
+            "booking_id": f["booking_id"] if "booking_id" in f.keys() else None,
+            "created_at": f["created_at"]}
 
 
 @app.route("/api/login", methods=["POST"])
@@ -1039,8 +1188,13 @@ def api_me():
 
 @app.route("/api/menu")
 def api_menu():
-    rows = get_db().execute(
-        "SELECT * FROM menu_items ORDER BY category, name").fetchall()
+    canteen_id = request.args.get("canteen_id", 0, type=int)
+    if canteen_id:
+        rows = get_db().execute(
+            "SELECT * FROM menu_items WHERE canteen_id=? ORDER BY category, name", (canteen_id,)).fetchall()
+    else:
+        rows = get_db().execute(
+            "SELECT * FROM menu_items ORDER BY category, name").fetchall()
     return jsonify({"items": [api_item_dict(r) for r in rows]})
 
 
@@ -1063,7 +1217,12 @@ def api_order():
     method = data.get("method") or "card"
     payment_name = (data.get("payment_name") or "").strip()
     payment_detail = (data.get("payment_detail") or "").strip()
+    canteen_id = data.get("canteen_id", 1)
+    use_own_cup = data.get("use_own_cup", False)
+    redeem_points = data.get("redeem_points", 0)
 
+    if method == "cash":
+        return jsonify({"error": "Cash is not accepted. Please choose a prepaid method."}), 400
     if not items or not booking_date or not time_slot:
         return jsonify({"error": "Please select items, date and time slot"}), 400
     try:
@@ -1075,14 +1234,19 @@ def api_order():
 
     db = get_db()
     summary_parts, line_items, total = [], [], 0.0
+    total_prep_time = 0
     for item_id, qty in cart:
         row = db.execute("SELECT * FROM menu_items WHERE id=?", (item_id,)).fetchone()
         if not row or not row["available"]:
             return jsonify({"error": "An item in your cart is no longer available"}), 409
-        total += row["price"] * qty
+        item_price = row["price"]
+        if use_own_cup and row.get("own_cup_price") is not None:
+            item_price = row["own_cup_price"]
+        total += item_price * qty
+        total_prep_time = max(total_prep_time, row["prep_time"] if "prep_time" in row.keys() else 15)
         summary_parts.append("{} x {}".format(qty, row["name"]))
         line_items.append({"id": row["id"], "name": row["name"],
-                           "image": row["image"], "qty": qty, "price": row["price"]})
+                           "image": row["image"], "qty": qty, "price": item_price})
     item_summary = ", ".join(summary_parts)
 
     if method in ("card", "esewa", "khalti"):
@@ -1092,20 +1256,45 @@ def api_order():
     else:
         payment_status = "unpaid"
 
+    # Wallet redemption
+    wallet_discount = 0
+    redeem_points = data.get("redeem_points", 0)
+    if redeem_points > 0:
+        user_wallet = user["wallet_balance"] if "wallet_balance" in user.keys() else 0
+        wallet_discount = min(float(redeem_points), user_wallet)
+        total = max(0, total - wallet_discount)
+
     txn_ref = "KB-" + secrets.token_hex(3).upper()
     cur = db.execute(
-        "INSERT INTO bookings (user_id, booking_date, time_slot, item_summary, items_json, total, status, payment_status)"
-        " VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO bookings (user_id, booking_date, time_slot, item_summary, items_json, total, status, payment_status, canteen_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
         (user["id"], booking_date, time_slot, item_summary,
-         json.dumps(line_items), total, "pending", payment_status))
+         json.dumps(line_items), total, "pending", payment_status, canteen_id))
     booking_id = cur.lastrowid
     db.execute(
         "INSERT INTO transactions (txn_ref, user_id, booking_id, amount, method, status) VALUES (?,?,?,?,?,?)",
         (txn_ref, user["id"], booking_id, total, method,
          "success" if payment_status == "paid" else "pending"))
+
+    # Wallet redemption transaction
+    if wallet_discount > 0:
+        db.execute("UPDATE users SET wallet_balance = wallet_balance - ? WHERE id=?", (wallet_discount, user["id"]))
+        db.execute("INSERT INTO wallet_transactions (user_id, amount, type, booking_id) VALUES (?,?,?,?)",
+                   (user["id"], -wallet_discount, "redeem", booking_id))
+
+    # Queue estimation: count pending orders for today at same canteen
+    today = datetime.date.today().isoformat()
+    pending_count = db.execute(
+        "SELECT COUNT(*) c FROM bookings WHERE booking_date=? AND canteen_id=? AND status='pending'",
+        (today, canteen_id)).fetchone()["c"]
+    queue_wait_minutes = pending_count * 15  # avg 15 min per order
+
     db.commit()
     return jsonify({"booking_id": booking_id, "txn_ref": txn_ref,
-                    "total": total, "payment_status": payment_status})
+                    "total": total, "payment_status": payment_status,
+                    "wallet_used": wallet_discount,
+                    "wallet_balance": (user["wallet_balance"] if "wallet_balance" in user.keys() else 0) - wallet_discount,
+                    "prep_time": total_prep_time, "queue_wait": queue_wait_minutes})
 
 
 @app.route("/api/bookings")
@@ -1191,13 +1380,15 @@ def api_feedback():
         rating = data.get("rating", 0)
         comment = (data.get("comment") or "").strip()
         hygiene = 1 if data.get("hygiene_issue") else 0
+        photo = (data.get("photo") or "").strip()
+        booking_id = data.get("booking_id") or None
         if not 1 <= rating <= 5:
             return jsonify({"error": "Rating must be 1–5"}), 400
         if not comment:
             return jsonify({"error": "Please write a short comment"}), 400
         db.execute(
-            "INSERT INTO feedback (user_id, rating, comment, hygiene_issue) VALUES (?,?,?,?)",
-            (user["id"], rating, comment, hygiene))
+            "INSERT INTO feedback (user_id, rating, comment, hygiene_issue, photo, booking_id) VALUES (?,?,?,?,?,?)",
+            (user["id"], rating, comment, hygiene, photo, booking_id))
         db.commit()
         return jsonify({"ok": True})
     rows = db.execute(
@@ -1289,8 +1480,27 @@ def api_admin_booking_status(booking_id):
     status = (request.get_json(silent=True) or {}).get("status", "")
     if status not in ("pending", "confirmed", "completed", "cancelled"):
         return jsonify({"error": "Invalid status"}), 400
-    get_db().execute("UPDATE bookings SET status=? WHERE id=?", (status, booking_id))
-    get_db().commit()
+    db = get_db()
+    booking = db.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+    if not booking:
+        return jsonify({"error": "Booking not found"}), 404
+    db.execute("UPDATE bookings SET status=? WHERE id=?", (status, booking_id))
+    # Create notification for status change
+    ref = f"KB-{booking_id:04d}"
+    notif_title = ""
+    notif_body = ""
+    if status == "confirmed":
+        notif_title = "Order Confirmed"
+        notif_body = f"Your order {ref} has been confirmed and is being prepared."
+    elif status == "completed":
+        notif_title = "Order Ready! 🎉"
+        notif_body = f"Your order {ref} is ready for pickup!"
+    elif status == "cancelled":
+        notif_title = "Order Cancelled"
+        notif_body = f"Your order {ref} has been cancelled."
+    if notif_title:
+        create_notification(booking["user_id"], notif_title, notif_body, booking_id)
+    db.commit()
     return jsonify({"ok": True})
 
 
@@ -1311,11 +1521,15 @@ def api_admin_menu():
         price = data.get("price", 0)
         image = (data.get("image") or "").strip() or "🍽️"
         photo = (data.get("photo") or "").strip()
+        own_cup_price = data.get("own_cup_price") or None
+        canteen_id = data.get("canteen_id", 1)
+        prep_time = data.get("prep_time", 15)
+        daily_quantity = data.get("daily_quantity", 0)
         if not name or not category or not price or price <= 0:
             return jsonify({"error": "Name, category and a valid NPR price are required"}), 400
         db.execute(
-            "INSERT INTO menu_items (name, category, description, price, image, photo) VALUES (?,?,?,?,?,?)",
-            (name, category, description, price, image, photo))
+            "INSERT INTO menu_items (name, category, description, price, image, photo, canteen_id, prep_time, daily_quantity, own_cup_price) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (name, category, description, price, image, photo, canteen_id, prep_time, daily_quantity, own_cup_price))
         db.commit()
         return jsonify({"ok": True})
     rows = db.execute("SELECT * FROM menu_items ORDER BY category, name").fetchall()
@@ -1354,11 +1568,15 @@ def api_admin_edit_item(item_id):
     description = (data.get("description") or "").strip()
     price = data.get("price", 0)
     image = (data.get("image") or "").strip() or "🍽️"
+    photo = (data.get("photo") or "").strip()
+    own_cup_price = data.get("own_cup_price") or None
+    prep_time = data.get("prep_time", 15)
+    daily_quantity = data.get("daily_quantity", 0)
     if not name or not category or not price or price <= 0:
         return jsonify({"error": "Name, category and a valid NPR price are required"}), 400
     get_db().execute(
-        "UPDATE menu_items SET name=?, category=?, description=?, price=?, image=? WHERE id=?",
-        (name, category, description, price, image, item_id))
+        "UPDATE menu_items SET name=?, category=?, description=?, price=?, image=?, photo=?, own_cup_price=?, prep_time=?, daily_quantity=? WHERE id=?",
+        (name, category, description, price, image, photo, own_cup_price, prep_time, daily_quantity, item_id))
     get_db().commit()
     return jsonify({"ok": True})
 
@@ -1486,6 +1704,225 @@ def api_staff_today():
         "SELECT * FROM announcements ORDER BY created_at DESC LIMIT 3").fetchall()
     return jsonify({"today": [api_booking_dict(r) for r in rows],
                     "announcements": [dict(r) for r in anns]})
+
+
+# --------------------------------------------------------------------------
+# New API endpoints for multi-canteen, offers, points, settings
+# --------------------------------------------------------------------------
+
+@app.route("/api/canteens")
+def api_canteens():
+    rows = get_db().execute("SELECT * FROM canteens WHERE active=1 ORDER BY id").fetchall()
+    return jsonify({"canteens": [dict(r) for r in rows]})
+
+
+@app.route("/api/categories")
+def api_categories():
+    rows = get_db().execute("SELECT DISTINCT category FROM menu_items ORDER BY category").fetchall()
+    return jsonify({"categories": [r["category"] for r in rows]})
+
+
+@app.route("/api/offers")
+def api_offers():
+    today = datetime.date.today().isoformat()
+    rows = get_db().execute(
+        "SELECT * FROM offers WHERE active=1 AND (start_date='' OR start_date<=?) AND (end_date='' OR end_date>=?) ORDER BY discount_pct DESC",
+        (today, today)).fetchall()
+    return jsonify({"offers": [dict(r) for r in rows]})
+
+
+@app.route("/api/settings/hours", methods=["GET", "POST"])
+def api_settings_hours():
+    db = get_db()
+    if request.method == "POST":
+        user, err = api_require_user()
+        if err:
+            return jsonify(err[0]), err[1]
+        denied = api_require_roles(user, "admin", "staff")
+        if denied:
+            return jsonify(denied[0]), denied[1]
+        data = request.get_json(silent=True) or {}
+        canteen_id = data.get("canteen_id", 1)
+        open_time = data.get("open_time", "09:00")
+        close_time = data.get("close_time", "17:00")
+        db.execute("UPDATE canteens SET open_time=?, close_time=? WHERE id=?", (open_time, close_time, canteen_id))
+        db.commit()
+        return jsonify({"ok": True})
+    canteen_id = request.args.get("canteen_id", 1, type=int)
+    row = db.execute("SELECT * FROM canteens WHERE id=?", (canteen_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Canteen not found"}), 404
+    return jsonify({"open_time": row["open_time"], "close_time": row["close_time"]})
+
+
+@app.route("/api/points", methods=["GET"])
+def api_points():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    rows = get_db().execute(
+        "SELECT * FROM points_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
+        (user["id"],)).fetchall()
+    return jsonify({"points": user["points"] if "points" in user.keys() else 0,
+                    "history": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/offers", methods=["GET", "POST"])
+def api_admin_offers():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    db = get_db()
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        title = (data.get("title") or "").strip()
+        body = (data.get("body") or "").strip()
+        discount_pct = data.get("discount_pct", 0)
+        menu_item_id = data.get("menu_item_id") or None
+        canteen_id = data.get("canteen_id", 1)
+        start_date = data.get("start_date", "")
+        end_date = data.get("end_date", "")
+        if not title:
+            return jsonify({"error": "Title is required"}), 400
+        db.execute(
+            "INSERT INTO offers (title, body, discount_pct, menu_item_id, canteen_id, start_date, end_date) VALUES (?,?,?,?,?,?,?)",
+            (title, body, discount_pct, menu_item_id, canteen_id, start_date, end_date))
+        db.commit()
+        return jsonify({"ok": True})
+    rows = db.execute("SELECT * FROM offers ORDER BY created_at DESC").fetchall()
+    return jsonify({"offers": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/offers/<int:offer_id>", methods=["PUT", "DELETE"])
+def api_admin_offer_detail(offer_id):
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    db = get_db()
+    if request.method == "DELETE":
+        db.execute("DELETE FROM offers WHERE id=?", (offer_id,))
+        db.commit()
+        return jsonify({"ok": True})
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    body = (data.get("body") or "").strip()
+    discount_pct = data.get("discount_pct", 0)
+    menu_item_id = data.get("menu_item_id") or None
+    canteen_id = data.get("canteen_id", 1)
+    start_date = data.get("start_date", "")
+    end_date = data.get("end_date", "")
+    active = data.get("active", 1)
+    db.execute(
+        "UPDATE offers SET title=?, body=?, discount_pct=?, menu_item_id=?, canteen_id=?, start_date=?, end_date=?, active=? WHERE id=?",
+        (title, body, discount_pct, menu_item_id, canteen_id, start_date, end_date, active, offer_id))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/settings", methods=["GET", "POST"])
+def api_admin_settings():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    db = get_db()
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        for key, value in data.items():
+            db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (key, str(value)))
+        db.commit()
+        return jsonify({"ok": True})
+    rows = db.execute("SELECT * FROM settings").fetchall()
+    return jsonify({r["key"]: r["value"] for r in rows})
+
+
+# --------------------------------------------------------------------------
+# Wallet & Notifications
+# --------------------------------------------------------------------------
+
+@app.route("/api/wallet", methods=["GET"])
+def api_wallet():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
+        (user["id"],)).fetchall()
+    return jsonify({"balance": user["wallet_balance"] if "wallet_balance" in user.keys() else 0,
+                    "history": [dict(r) for r in rows]})
+
+
+@app.route("/api/wallet/topup", methods=["POST"])
+def api_wallet_topup():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    data = request.get_json(silent=True) or {}
+    amount = data.get("amount", 0)
+    if not amount or amount <= 0:
+        return jsonify({"error": "Amount must be greater than 0"}), 400
+    db = get_db()
+    db.execute("UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?", (amount, user["id"]))
+    db.execute("INSERT INTO wallet_transactions (user_id, amount, type) VALUES (?,?,?)",
+               (user["id"], amount, "topup"))
+    db.commit()
+    new_balance = db.execute("SELECT wallet_balance FROM users WHERE id=?", (user["id"],)).fetchone()["wallet_balance"]
+    return jsonify({"ok": True, "balance": new_balance})
+
+
+@app.route("/api/notifications", methods=["GET"])
+def api_notifications():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
+        (user["id"],)).fetchall()
+    unread = db.execute(
+        "SELECT COUNT(*) c FROM notifications WHERE user_id=? AND read=0",
+        (user["id"],)).fetchone()["c"]
+    return jsonify({"notifications": [dict(r) for r in rows], "unread": unread})
+
+
+@app.route("/api/notifications/<int:notif_id>/read", methods=["POST"])
+def api_notification_read(notif_id):
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    db = get_db()
+    db.execute("UPDATE notifications SET read=1 WHERE id=? AND user_id=?", (notif_id, user["id"]))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/notifications/read-all", methods=["POST"])
+def api_notification_read_all():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    db = get_db()
+    db.execute("UPDATE notifications SET read=1 WHERE user_id=?", (user["id"],))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+def create_notification(user_id, title, body, booking_id=None):
+    """Helper to create a notification for a user."""
+    db = get_db()
+    db.execute(
+        "INSERT INTO notifications (user_id, title, body, booking_id) VALUES (?,?,?,?)",
+        (user_id, title, body, booking_id))
+    db.commit()
 
 
 # --------------------------------------------------------------------------
