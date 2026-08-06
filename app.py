@@ -115,6 +115,7 @@ def init_db():
             status TEXT DEFAULT 'pending',
             payment_status TEXT DEFAULT 'unpaid',
             canteen_id INTEGER DEFAULT 1,
+            customer_name TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -211,6 +212,7 @@ def init_db():
     ensure_column("menu_items", "daily_quantity", "daily_quantity INTEGER DEFAULT 0")
     ensure_column("menu_items", "own_cup_price", "own_cup_price REAL DEFAULT NULL")
     ensure_column("bookings", "canteen_id", "canteen_id INTEGER DEFAULT 1")
+    ensure_column("bookings", "customer_name", "customer_name TEXT DEFAULT ''")
     ensure_column("feedback", "photo", "photo TEXT DEFAULT ''")
     ensure_column("feedback", "booking_id", "booking_id INTEGER DEFAULT NULL")
 
@@ -251,8 +253,41 @@ def init_db():
         cur.execute("UPDATE users SET uid=? WHERE id=?",
                     ("ING-{}-{:03d}".format(u["role"][:3].upper(), u["id"]), u["id"]))
 
-    if cur.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-        pass  # demo users are handled by upsert_demo_user above
+    # Sample bookings with different customer names for demo
+    if cur.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 0:
+        today = datetime.date.today().isoformat()
+        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+        sample_bookings = [
+            (3, today, '12:00 PM', '[{"id":1,"name":"French Fries","image":"🍟","qty":2,"price":160},{"id":4,"name":"Popcorn Chicken","image":"🍗","qty":1,"price":170}]', 490, 'completed', 'paid', 'Bibek Tamang'),
+            (3, today, '12:30 PM', '[{"id":8,"name":"Chicken Chilli","image":"🍗","qty":1,"price":240},{"id":20,"name":"Chicken Rice","image":"🍚","qty":1,"price":165}]', 405, 'confirmed', 'paid', 'Rohan K.'),
+            (3, today, '1:00 PM', '[{"id":15,"name":"Steam Mo:Mo (Chicken)","image":"🥟","qty":2,"price":150}]', 300, 'pending', 'paid', 'Priya S.'),
+            (3, today, '1:30 PM', '[{"id":30,"name":"Plain Popcorn (Large)","image":"🍿","qty":1,"price":90},{"id":37,"name":"Coca-Cola","image":"🥤","qty":2,"price":80}]', 250, 'pending', 'paid', 'Anjali T.'),
+            (3, yesterday, '11:00 AM', '[{"id":12,"name":"Bolognese (Chicken)","image":"🍝","qty":1,"price":270},{"id":39,"name":"Cappuccino","image":"☕","qty":1,"price":150}]', 420, 'completed', 'paid', 'Sujan M.'),
+            (3, yesterday, '2:00 PM', '[{"id":22,"name":"C Mo:Mo (Veg)","image":"🥟","qty":1,"price":135},{"id":3,"name":"Chips Chilli","image":"🌶️","qty":1,"price":180}]', 315, 'cancelled', 'paid', 'Nisha A.'),
+        ]
+        for booking in sample_bookings:
+            user_id, date, slot, items_json, total, status, payment, customer_name = booking
+            cur.execute(
+                "INSERT INTO bookings (user_id, booking_date, time_slot, item_summary, items_json, total, status, payment_status, canteen_id, customer_name) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (user_id, date, slot, items_json, items_json, total, status, payment, 1, customer_name))
+            booking_id = cur.lastrowid
+            txn_ref = "KB-" + secrets.token_hex(3).upper()
+            cur.execute(
+                "INSERT INTO transactions (txn_ref, user_id, booking_id, amount, method, status) VALUES (?,?,?,?,?,?)",
+                (txn_ref, user_id, booking_id, total, 'esewa', 'success'))
+
+        # Sample notifications
+        cur.execute("INSERT INTO notifications (user_id, title, body, booking_id) VALUES (?,?,?,?)",
+                    (3, "Order Ready! 🎉", "Your order KB-0001 is ready for pickup!", 1))
+        cur.execute("INSERT INTO notifications (user_id, title, body, booking_id) VALUES (?,?,?,?)",
+                    (3, "Order Confirmed", "Your order KB-0002 has been confirmed.", 2))
+
+        # Sample offers
+        if cur.execute("SELECT COUNT(*) FROM offers").fetchone()[0] == 0:
+            cur.execute("INSERT INTO offers (title, body, discount_pct, menu_item_id, start_date, end_date, active) VALUES (?,?,?,?,?,?,?)",
+                        ("Mo:Mo Monday", "All Mo:Mo varieties at 15% off!", 15, 15, today, today, 1))
+            cur.execute("INSERT INTO offers (title, body, discount_pct, menu_item_id, start_date, end_date, active) VALUES (?,?,?,?,?,?,?)",
+                        ("Happy Hour", "Buy 1 Get 1 Free on beverages!", 50, 37, today, today, 1))
 
     if cur.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0] == 0:
         # Full menu: (name, category, description, price, image, photo, canteen_id, prep_time, own_cup_price)
@@ -1110,6 +1145,7 @@ def api_booking_dict(b):
             "created_at": b["created_at"],
             "items_json": b["items_json"],
             "canteen_id": b["canteen_id"] if "canteen_id" in b.keys() else 1,
+            "customer_name": b["customer_name"] if "customer_name" in b.keys() else "",
             "uname": b["uname"] if "uname" in b.keys() else None,
             "uemail": b["uemail"] if "uemail" in b.keys() else None}
 
@@ -1220,6 +1256,7 @@ def api_order():
     canteen_id = data.get("canteen_id", 1)
     use_own_cup = data.get("use_own_cup", False)
     redeem_points = data.get("redeem_points", 0)
+    customer_name = (data.get("customer_name") or "").strip() or user["name"]
 
     if method == "cash":
         return jsonify({"error": "Cash is not accepted. Please choose a prepaid method."}), 400
@@ -1266,10 +1303,10 @@ def api_order():
 
     txn_ref = "KB-" + secrets.token_hex(3).upper()
     cur = db.execute(
-        "INSERT INTO bookings (user_id, booking_date, time_slot, item_summary, items_json, total, status, payment_status, canteen_id)"
-        " VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO bookings (user_id, booking_date, time_slot, item_summary, items_json, total, status, payment_status, canteen_id, customer_name)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?)",
         (user["id"], booking_date, time_slot, item_summary,
-         json.dumps(line_items), total, "pending", payment_status, canteen_id))
+         json.dumps(line_items), total, "pending", payment_status, canteen_id, customer_name))
     booking_id = cur.lastrowid
     db.execute(
         "INSERT INTO transactions (txn_ref, user_id, booking_id, amount, method, status) VALUES (?,?,?,?,?,?)",
