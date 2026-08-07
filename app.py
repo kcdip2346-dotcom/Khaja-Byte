@@ -74,7 +74,7 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'customer',
-            credit_points INTEGER DEFAULT 0,
+            credit_balance REAL DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -170,10 +170,10 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE IF NOT EXISTS credit_points_transactions (
+        CREATE TABLE IF NOT EXISTS credits_transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            points INTEGER NOT NULL,
+            amount REAL NOT NULL,
             type TEXT NOT NULL,
             booking_id INTEGER DEFAULT NULL,
             created_at TEXT DEFAULT (datetime('now'))
@@ -206,11 +206,12 @@ def init_db():
     ensure_column("menu_items", "photo", "photo TEXT DEFAULT ''")
     ensure_column("bookings", "items_json", "items_json TEXT DEFAULT '[]'")
     ensure_column("users", "uid", "uid TEXT DEFAULT ''")
-    ensure_column("users", "credit_points", "credit_points INTEGER DEFAULT 0")
+    ensure_column("users", "credit_balance", "credit_balance REAL DEFAULT 0")
     ensure_column("menu_items", "canteen_id", "canteen_id INTEGER DEFAULT 1")
     ensure_column("menu_items", "prep_time", "prep_time INTEGER DEFAULT 15")
     ensure_column("menu_items", "daily_quantity", "daily_quantity INTEGER DEFAULT 0")
     ensure_column("menu_items", "own_cup_price", "own_cup_price REAL DEFAULT NULL")
+    ensure_column("menu_items", "ingredients", "ingredients TEXT DEFAULT ''")
     ensure_column("bookings", "canteen_id", "canteen_id INTEGER DEFAULT 1")
     ensure_column("bookings", "customer_name", "customer_name TEXT DEFAULT ''")
     ensure_column("feedback", "photo", "photo TEXT DEFAULT ''")
@@ -248,6 +249,11 @@ def init_db():
     upsert_demo_user("Bibek Tamang", "student@ingcollege.edu.np",
                      "student123", "customer", "ING-STU-003")
 
+    # Add demo credits to student account
+    cur.execute("UPDATE users SET credit_balance = 500 WHERE email = 'student@ingcollege.edu.np'")
+    cur.execute("INSERT INTO credits_transactions (user_id, amount, type) VALUES (?, ?, ?)",
+                (3, 500, "topup_esewa"))
+
     # Backfill uids for any remaining users (e.g. registered before uid existed)
     for u in cur.execute("SELECT * FROM users WHERE uid=''").fetchall():
         cur.execute("UPDATE users SET uid=? WHERE id=?",
@@ -258,36 +264,60 @@ def init_db():
         today = datetime.date.today().isoformat()
         yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
         sample_bookings = [
-            (3, today, '12:00 PM', '[{"id":1,"name":"French Fries","image":"🍟","qty":2,"price":160},{"id":4,"name":"Popcorn Chicken","image":"🍗","qty":1,"price":170}]', 490, 'completed', 'paid', 'Bibek Tamang'),
-            (3, today, '12:30 PM', '[{"id":8,"name":"Chicken Chilli","image":"🍗","qty":1,"price":240},{"id":20,"name":"Chicken Rice","image":"🍚","qty":1,"price":165}]', 405, 'confirmed', 'paid', 'Rohan K.'),
-            (3, today, '1:00 PM', '[{"id":15,"name":"Steam Mo:Mo (Chicken)","image":"🥟","qty":2,"price":150}]', 300, 'pending', 'paid', 'Priya S.'),
-            (3, today, '1:30 PM', '[{"id":30,"name":"Plain Popcorn (Large)","image":"🍿","qty":1,"price":90},{"id":37,"name":"Coca-Cola","image":"🥤","qty":2,"price":80}]', 250, 'pending', 'paid', 'Anjali T.'),
-            (3, yesterday, '11:00 AM', '[{"id":12,"name":"Bolognese (Chicken)","image":"🍝","qty":1,"price":270},{"id":39,"name":"Cappuccino","image":"☕","qty":1,"price":150}]', 420, 'completed', 'paid', 'Sujan M.'),
-            (3, yesterday, '2:00 PM', '[{"id":22,"name":"C Mo:Mo (Veg)","image":"🥟","qty":1,"price":135},{"id":3,"name":"Chips Chilli","image":"🌶️","qty":1,"price":180}]', 315, 'cancelled', 'paid', 'Nisha A.'),
+            (3, today, '12:00 PM', '2 x French Fries, 1 x Popcorn Chicken', '[{"id":1,"name":"French Fries","image":"🍟","qty":2,"price":160},{"id":4,"name":"Popcorn Chicken","image":"🍗","qty":1,"price":170}]', 490, 'completed', 'paid', 'Bibek Tamang'),
+            (3, today, '12:30 PM', '1 x Chicken Chilli, 1 x Chicken Rice', '[{"id":8,"name":"Chicken Chilli","image":"🍗","qty":1,"price":240},{"id":20,"name":"Chicken Rice","image":"🍚","qty":1,"price":165}]', 405, 'confirmed', 'paid', 'Rohan K.'),
+            (3, today, '1:00 PM', '2 x Steam Mo:Mo (Chicken)', '[{"id":15,"name":"Steam Mo:Mo (Chicken)","image":"🥟","qty":2,"price":150}]', 300, 'pending', 'paid', 'Priya S.'),
+            (3, today, '1:30 PM', '1 x Plain Popcorn (Large), 2 x Coca-Cola', '[{"id":30,"name":"Plain Popcorn (Large)","image":"🍿","qty":1,"price":90},{"id":37,"name":"Coca-Cola","image":"🥤","qty":2,"price":80}]', 250, 'pending', 'paid', 'Anjali T.'),
+            (3, yesterday, '11:00 AM', '1 x Bolognese (Chicken), 1 x Cappuccino', '[{"id":12,"name":"Bolognese (Chicken)","image":"🍝","qty":1,"price":270},{"id":39,"name":"Cappuccino","image":"☕","qty":1,"price":150}]', 420, 'completed', 'paid', 'Sujan M.'),
+            (3, yesterday, '2:00 PM', '1 x C Mo:Mo (Veg), 1 x Chips Chilli', '[{"id":22,"name":"C Mo:Mo (Veg)","image":"🥟","qty":1,"price":135},{"id":3,"name":"Chips Chilli","image":"🌶️","qty":1,"price":180}]', 315, 'cancelled', 'paid', 'Nisha A.'),
         ]
         for booking in sample_bookings:
-            user_id, date, slot, items_json, total, status, payment, customer_name = booking
+            user_id, date, slot, summary, items_json, total, status, payment, customer_name = booking
             cur.execute(
                 "INSERT INTO bookings (user_id, booking_date, time_slot, item_summary, items_json, total, status, payment_status, canteen_id, customer_name) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (user_id, date, slot, items_json, items_json, total, status, payment, 1, customer_name))
+                (user_id, date, slot, summary, items_json, total, status, payment, 1, customer_name))
             booking_id = cur.lastrowid
             txn_ref = "KB-" + secrets.token_hex(3).upper()
             cur.execute(
                 "INSERT INTO transactions (txn_ref, user_id, booking_id, amount, method, status) VALUES (?,?,?,?,?,?)",
                 (txn_ref, user_id, booking_id, total, 'esewa', 'success'))
 
-        # Sample notifications
-        cur.execute("INSERT INTO notifications (user_id, title, body, booking_id) VALUES (?,?,?,?)",
-                    (3, "Order Ready! 🎉", "Your order KB-0001 is ready for pickup!", 1))
-        cur.execute("INSERT INTO notifications (user_id, title, body, booking_id) VALUES (?,?,?,?)",
-                    (3, "Order Confirmed", "Your order KB-0002 has been confirmed.", 2))
+        # Sample notifications (marked as read so they don't show as unread)
+        cur.execute("INSERT INTO notifications (user_id, title, body, booking_id, read) VALUES (?,?,?,?,?)",
+                    (3, "Order Ready! 🎉", "Your order KB-0001 is ready for pickup!", 1, 1))
+        cur.execute("INSERT INTO notifications (user_id, title, body, booking_id, read) VALUES (?,?,?,?,?)",
+                    (3, "Order Confirmed", "Your order KB-0002 has been confirmed.", 2, 1))
 
-        # Sample offers
+        # Sample offers (time-bound: start_date=today, end_date=tomorrow)
+        tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
         if cur.execute("SELECT COUNT(*) FROM offers").fetchone()[0] == 0:
             cur.execute("INSERT INTO offers (title, body, discount_pct, menu_item_id, start_date, end_date, active) VALUES (?,?,?,?,?,?,?)",
-                        ("Mo:Mo Monday", "All Mo:Mo varieties at 15% off!", 15, 15, today, today, 1))
+                        ("Mo:Mo Monday", "All Mo:Mo varieties at 15% off!", 15, 15, today, tomorrow, 1))
             cur.execute("INSERT INTO offers (title, body, discount_pct, menu_item_id, start_date, end_date, active) VALUES (?,?,?,?,?,?,?)",
-                        ("Happy Hour", "Buy 1 Get 1 Free on beverages!", 50, 37, today, today, 1))
+                        ("Happy Hour", "Buy 1 Get 1 Free on beverages!", 50, 37, today, tomorrow, 1))
+            cur.execute("INSERT INTO offers (title, body, discount_pct, menu_item_id, start_date, end_date, active) VALUES (?,?,?,?,?,?,?)",
+                        ("Weekend Pasta Deal", "All pasta at 20% off!", 20, 12, today, tomorrow, 1))
+
+    # Sample feedback (demo reviews from students) — standalone so it seeds even if bookings exist
+    if cur.execute("SELECT COUNT(*) FROM feedback").fetchone()[0] == 0:
+        import datetime as _dt
+        now = _dt.datetime.now()
+        def fb_dt(hours_ago):
+            return (now - _dt.timedelta(hours=hours_ago)).strftime("%Y-%m-%d %H:%M:%S")
+        demo_feedback = [
+            (3, 5, "Steam Mo:Mo were absolutely delicious — hot, juicy and fresh! The wait was short too.", 0, "responded", "Thank you! Glad you loved the Mo:Mo — we steam them in fresh batches every hour. 😊", fb_dt(2)),
+            (3, 4, "Chicken rice bowl is great value for money. Portion could be slightly bigger for the price.", 0, "responded", "Noted! We've increased the portion size from this week. Enjoy!", fb_dt(5)),
+            (3, 3, "Popcorn was a bit soggy today. It got cold by the time I reached the counter.", 0, "read", "", fb_dt(8)),
+            (3, 2, "Found a strand of hair in my fries. Please check the kitchen gloves policy.", 1, "new", "", fb_dt(26)),
+            (3, 5, "Love the own-cup discount! Cheaper drinks AND less plastic. Great initiative 🥤🌱", 0, "read", "", fb_dt(30)),
+            (3, 1, "Queue was very long during lunch break and one item was sold out after waiting 10 minutes.", 0, "new", "", fb_dt(49)),
+            (3, 4, "Cappuccino was perfect — better than the café outside campus!", 0, "read", "", fb_dt(52)),
+            (3, 5, "The combo deal (Mo:Mo + drink) is such a steal. Will be my go-to every Monday!", 0, "new", "", fb_dt(74)),
+        ]
+        for uid, rating, comment, hygiene, status, response, created_at in demo_feedback:
+            cur.execute(
+                "INSERT INTO feedback (user_id, rating, comment, hygiene_issue, status, response, created_at) VALUES (?,?,?,?,?,?,?)",
+                (uid, rating, comment, hygiene, status, response, created_at))
 
     if cur.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0] == 0:
         # Full menu: (name, category, description, price, image, photo, canteen_id, prep_time, own_cup_price)
@@ -342,6 +372,22 @@ def init_db():
             ("Fried Chilli Mo:Mo (Veg)", "MO:MO", "Fried chilli veg dumplings", 135, "🥟", "", 1, 12, None),
             ("Fried Chilli Mo:Mo (Chicken)", "MO:MO", "Fried chilli chicken dumplings", 185, "🥟", "", 1, 15, None),
             ("Fried Chilli Mo:Mo (Buff)", "MO:MO", "Fried chilli buff dumplings", 165, "🥟", "", 1, 15, None),
+            # Combos
+            ("Mo:Mo + Drink Combo", "Combos", "Steam Mo:Mo (Chicken) + beverage of choice", 199, "🥟🥤", "", 1, 15, None),
+            ("Rice Bowl Combo", "Combos", "Chicken fried rice + egg + pickle", 175, "🍚", "", 1, 18, None),
+            ("Pasta Special Combo", "Combos", "Bolognese pasta + garlic bread", 299, "🍝", "", 1, 20, None),
+            ("Snack Pack Combo", "Combos", "French fries + popcorn chicken + drink", 250, "🍟", "", 1, 15, None),
+            ("Veg Thali Combo", "Combos", "Dal bhat + seasonal veg + pickle + papad", 180, "🍱", "", 1, 20, None),
+            ("Chicken Thali Combo", "Combos", "Chicken curry + rice + dal + pickle", 220, "🍱", "", 1, 20, None),
+            # Sides & Extras
+            ("Garlic Bread", "Sides", "Toasted garlic butter bread", 85, "🍞", "", 1, 5, None),
+            ("Seasonal Veg Curry", "Sides", "Fresh seasonal vegetable curry", 90, "🥦", "", 1, 10, None),
+            ("Achaar (Pickle)", "Sides", "Traditional Nepali spicy pickle", 25, "🥒", "", 1, 0, None),
+            ("Papad", "Sides", "Crispy roasted papad", 20, "🫓", "", 1, 2, None),
+            ("Dal (Lentil Soup)", "Sides", "Traditional dal tadka", 60, "🍲", "", 1, 8, None),
+            ("Chicken Curry", "Sides", "Spicy chicken curry", 150, "🍗", "", 1, 15, None),
+            ("Extra Rice", "Sides", "Steamed basmati rice", 40, "🍚", "", 1, 5, None),
+            ("Extra Egg", "Sides", "Fried egg", 30, "🍳", "", 1, 5, None),
             # Popcorn Menu
             ("Plain Popcorn (Small)", "Popcorn", "Lightly salted popcorn", 55, "🍿", "", 1, 5, None),
             ("Plain Popcorn (Large)", "Popcorn", "Lightly salted popcorn large", 90, "🍿", "", 1, 5, None),
@@ -720,6 +766,10 @@ def cancel_booking(booking_id):
         flash("Booking not found.", "error")
     elif booking["status"] in ("completed", "cancelled"):
         flash("This booking can no longer be cancelled.", "warn")
+    elif not booking_cancellable(booking):
+        flash("The {} minute cancellation window has passed — the order is "
+              "already being prepared and cannot be cancelled.".format(
+                  CANCEL_WINDOW_MINUTES), "warn")
     else:
         db.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (booking_id,))
         if booking["payment_status"] == "paid":
@@ -1002,7 +1052,9 @@ def staff_dashboard():
     today = datetime.date.today().isoformat()
     todays = db.execute(
         "SELECT b.*, u.name AS uname FROM bookings b JOIN users u ON u.id=b.user_id"
-        " WHERE b.booking_date=? ORDER BY b.time_slot", (today,)).fetchall()
+        " WHERE b.booking_date=?"
+        " ORDER BY CASE b.status WHEN 'pending' THEN 0 WHEN 'confirmed' THEN 1"
+        " WHEN 'completed' THEN 2 ELSE 3 END, b.time_slot, b.id", (today,)).fetchall()
     pending = sum(1 for r in todays if r["status"] == "pending")
     anns = db.execute("SELECT * FROM announcements ORDER BY created_at DESC LIMIT 3").fetchall()
     return render_template("staff_dashboard.html", todays=todays, pending=pending, anns=anns)
@@ -1122,7 +1174,7 @@ def api_require_roles(user, *roles):
 def api_user_dict(u):
     return {"id": u["id"], "name": u["name"], "email": u["email"],
             "role": u["role"], "uid": u["uid"],
-            "credit_points": u["credit_points"] if "credit_points" in u.keys() else 0,
+            "credit_balance": u["credit_balance"] if "credit_balance" in u.keys() else 0,
             "created_at": u["created_at"]}
 
 
@@ -1134,10 +1186,58 @@ def api_item_dict(i):
             "photo": i["photo"],
             "canteen_id": i["canteen_id"] if "canteen_id" in i.keys() else 1,
             "prep_time": i["prep_time"] if "prep_time" in i.keys() else 15,
-            "daily_quantity": i["daily_quantity"] if "daily_quantity" in i.keys() else 0}
+            "daily_quantity": i["daily_quantity"] if "daily_quantity" in i.keys() else 0,
+            "ingredients": i["ingredients"] if "ingredients" in i.keys() else ""}
+
+
+CANCEL_WINDOW_MINUTES = 7
+
+
+def booking_cancel_deadline(b):
+    """Free-cancellation deadline (created_at + window) or None.
+    created_at is stored via SQLite datetime('now') which is UTC."""
+    try:
+        created = datetime.datetime.strptime(b["created_at"], "%Y-%m-%d %H:%M:%S")
+    except (ValueError, KeyError, TypeError):
+        return None
+    return created + datetime.timedelta(minutes=CANCEL_WINDOW_MINUTES)
+
+
+def booking_cancellable(b):
+    """A pre-order may be cancelled only inside the free window and while the
+    meal has not been prepared (policy: 7 minute grace from submission)."""
+    if b["status"] not in ("pending", "confirmed"):
+        return False
+    deadline = booking_cancel_deadline(b)
+    if deadline is None:
+        return False
+    return datetime.datetime.utcnow() < deadline
 
 
 def api_booking_dict(b):
+    db = get_db()
+    deadline = booking_cancel_deadline(b)
+    # Live queue position: pending orders ahead of this one at the same canteen & date
+    prep_time = 0
+    try:
+        import json as _json
+        lines = _json.loads(b["items_json"]) if b["items_json"] else []
+        item_ids = [l.get("id") for l in lines if l.get("id")]
+        if item_ids:
+            marks = ",".join("?" * len(item_ids))
+            rows = db.execute(f"SELECT id, prep_time FROM menu_items WHERE id IN ({marks})", item_ids).fetchall()
+            preps = {r["id"]: r["prep_time"] or 15 for r in rows}
+            for l in lines:
+                prep_time += (preps.get(l.get("id"), 15) or 15) * (l.get("qty") or 1)
+    except Exception:
+        prep_time = 15
+    queue_wait = 0
+    if b["status"] in ("pending", "confirmed"):
+        ahead = db.execute(
+            "SELECT COUNT(*) c FROM bookings WHERE booking_date=? AND canteen_id=?"
+            " AND status IN ('pending','confirmed') AND id <= ?",
+            (b["booking_date"], b["canteen_id"] if "canteen_id" in b.keys() else 1, b["id"])).fetchone()["c"]
+        queue_wait = max(ahead, 1) * 15
     return {"id": b["id"], "user_id": b["user_id"],
             "booking_date": b["booking_date"], "time_slot": b["time_slot"],
             "item_summary": b["item_summary"], "total": b["total"],
@@ -1147,7 +1247,11 @@ def api_booking_dict(b):
             "canteen_id": b["canteen_id"] if "canteen_id" in b.keys() else 1,
             "customer_name": b["customer_name"] if "customer_name" in b.keys() else "",
             "uname": b["uname"] if "uname" in b.keys() else None,
-            "uemail": b["uemail"] if "uemail" in b.keys() else None}
+            "uemail": b["uemail"] if "uemail" in b.keys() else None,
+            "queue_wait": queue_wait, "prep_time": prep_time,
+            "total_time": queue_wait + prep_time,
+            "cancellable": booking_cancellable(b),
+            "cancel_by": deadline.strftime("%Y-%m-%d %H:%M:%S") if deadline else None}
 
 
 def api_feedback_dict(f):
@@ -1293,13 +1397,14 @@ def api_order():
     else:
         payment_status = "unpaid"
 
-    # Credit points redemption (1 point = 1 NPR discount)
-    points_discount = 0
-    redeem_points = data.get("redeem_points", 0)
-    if redeem_points > 0:
-        user_points = user["credit_points"] if "credit_points" in user.keys() else 0
-        points_discount = min(int(redeem_points), user_points)
-        total = max(0, total - points_discount)
+    # Credits payment (use credits balance to pay)
+    credits_discount = 0
+    use_credits = data.get("use_credits", 0) or data.get("useWallet", 0)
+    if use_credits and float(use_credits) > 0:
+        user_credits = user["credit_balance"] if "credit_balance" in user.keys() else 0
+        credits_discount = min(float(use_credits), user_credits)
+        credits_discount = min(credits_discount, total)  # Can't exceed total
+        total = max(0, total - credits_discount)
 
     txn_ref = "KB-" + secrets.token_hex(3).upper()
     cur = db.execute(
@@ -1313,17 +1418,11 @@ def api_order():
         (txn_ref, user["id"], booking_id, total, method,
          "success" if payment_status == "paid" else "pending"))
 
-    # Credit points: earn 1 point per 10 NPR spent, redeem for discount
-    pts_per_npr = float(db.execute("SELECT value FROM settings WHERE key='points_per_npr'").fetchone()["value"])
-    points_earned = int(total * pts_per_npr)
-    if points_earned > 0:
-        db.execute("UPDATE users SET credit_points = credit_points + ? WHERE id=?", (points_earned, user["id"]))
-        db.execute("INSERT INTO credit_points_transactions (user_id, points, type, booking_id) VALUES (?,?,?,?)",
-                   (user["id"], points_earned, "earn", booking_id))
-    if points_discount > 0:
-        db.execute("UPDATE users SET credit_points = credit_points - ? WHERE id=?", (points_discount, user["id"]))
-        db.execute("INSERT INTO credit_points_transactions (user_id, points, type, booking_id) VALUES (?,?,?,?)",
-                   (user["id"], points_discount, "redeem", booking_id))
+    # Deduct credits balance if used
+    if credits_discount > 0:
+        db.execute("UPDATE users SET credit_balance = credit_balance - ? WHERE id=?", (credits_discount, user["id"]))
+        db.execute("INSERT INTO credits_transactions (user_id, amount, type, booking_id) VALUES (?,?,?,?)",
+                   (user["id"], -credits_discount, "spend", booking_id))
 
     # Queue estimation: count pending orders for today at same canteen
     today = datetime.date.today().isoformat()
@@ -1335,8 +1434,8 @@ def api_order():
     db.commit()
     return jsonify({"booking_id": booking_id, "txn_ref": txn_ref,
                     "total": total, "payment_status": payment_status,
-                    "points_earned": points_earned, "points_redeemed": points_discount,
-                    "points_balance": (user["credit_points"] if "credit_points" in user.keys() else 0) + points_earned - points_discount,
+                    "credits_used": credits_discount,
+                    "credit_balance": (user["credit_balance"] if "credit_balance" in user.keys() else 0) - credits_discount,
                     "prep_time": total_prep_time, "queue_wait": queue_wait_minutes})
 
 
@@ -1348,7 +1447,8 @@ def api_bookings():
     rows = get_db().execute(
         "SELECT b.*, u.name AS uname, u.email AS uemail FROM bookings b"
         " JOIN users u ON u.id=b.user_id WHERE b.user_id=?"
-        " ORDER BY b.created_at DESC", (user["id"],)).fetchall()
+        " ORDER BY CASE b.status WHEN 'pending' THEN 0 WHEN 'confirmed' THEN 1"
+        " WHEN 'completed' THEN 2 ELSE 3 END, b.booking_date DESC, b.created_at DESC", (user["id"],)).fetchall()
     return jsonify({"bookings": [api_booking_dict(r) for r in rows]})
 
 
@@ -1364,6 +1464,12 @@ def api_cancel_booking(booking_id):
         return jsonify({"error": "Booking not found"}), 404
     if booking["status"] in ("completed", "cancelled"):
         return jsonify({"error": "This booking can no longer be cancelled"}), 400
+    if not booking_cancellable(booking):
+        return jsonify({
+            "error": ("The {} minute cancellation window has passed and your "
+                      "order is already being prepared — it can no longer be "
+                      "cancelled or modified.").format(CANCEL_WINDOW_MINUTES)
+        }), 400
     db.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (booking_id,))
     if booking["payment_status"] == "paid":
         db.execute(
@@ -1450,6 +1556,8 @@ def api_profile():
     data = request.get_json(silent=True) or {}
     db = get_db()
     if data.get("name"):
+        if user["role"] not in ("admin",):
+            return jsonify({"error": "Only admins can change their name. Please contact the canteen admin."}), 403
         db.execute("UPDATE users SET name=? WHERE id=?", (data["name"].strip(), user["id"]))
         db.commit()
         return jsonify({"ok": True})
@@ -1508,7 +1616,9 @@ def api_admin_bookings():
         return jsonify(denied[0]), denied[1]
     rows = get_db().execute(
         "SELECT b.*, u.name AS uname, u.email AS uemail FROM bookings b"
-        " JOIN users u ON u.id=b.user_id ORDER BY b.booking_date DESC, b.id DESC").fetchall()
+        " JOIN users u ON u.id=b.user_id"
+        " ORDER BY CASE b.status WHEN 'pending' THEN 0 WHEN 'confirmed' THEN 1"
+        " WHEN 'completed' THEN 2 ELSE 3 END, b.booking_date DESC, b.created_at DESC").fetchall()
     return jsonify({"bookings": [api_booking_dict(r) for r in rows]})
 
 
@@ -1568,11 +1678,12 @@ def api_admin_menu():
         canteen_id = data.get("canteen_id", 1)
         prep_time = data.get("prep_time", 15)
         daily_quantity = data.get("daily_quantity", 0)
+        ingredients = (data.get("ingredients") or "").strip()
         if not name or not category or not price or price <= 0:
             return jsonify({"error": "Name, category and a valid NPR price are required"}), 400
         db.execute(
-            "INSERT INTO menu_items (name, category, description, price, image, photo, canteen_id, prep_time, daily_quantity, own_cup_price) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (name, category, description, price, image, photo, canteen_id, prep_time, daily_quantity, own_cup_price))
+            "INSERT INTO menu_items (name, category, description, price, image, photo, canteen_id, prep_time, daily_quantity, own_cup_price, ingredients) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (name, category, description, price, image, photo, canteen_id, prep_time, daily_quantity, own_cup_price, ingredients))
         db.commit()
         return jsonify({"ok": True})
     rows = db.execute("SELECT * FROM menu_items ORDER BY category, name").fetchall()
@@ -1615,11 +1726,12 @@ def api_admin_edit_item(item_id):
     own_cup_price = data.get("own_cup_price") or None
     prep_time = data.get("prep_time", 15)
     daily_quantity = data.get("daily_quantity", 0)
+    ingredients = (data.get("ingredients") or "").strip()
     if not name or not category or not price or price <= 0:
         return jsonify({"error": "Name, category and a valid NPR price are required"}), 400
     get_db().execute(
-        "UPDATE menu_items SET name=?, category=?, description=?, price=?, image=?, photo=?, own_cup_price=?, prep_time=?, daily_quantity=? WHERE id=?",
-        (name, category, description, price, image, photo, own_cup_price, prep_time, daily_quantity, item_id))
+        "UPDATE menu_items SET name=?, category=?, description=?, price=?, image=?, photo=?, own_cup_price=?, prep_time=?, daily_quantity=?, ingredients=? WHERE id=?",
+        (name, category, description, price, image, photo, own_cup_price, prep_time, daily_quantity, ingredients, item_id))
     get_db().commit()
     return jsonify({"ok": True})
 
@@ -1663,6 +1775,19 @@ def api_admin_feedback_respond(fb_id):
     status = "responded" if response else "read"
     get_db().execute("UPDATE feedback SET response=?, status=? WHERE id=?",
                      (response, status, fb_id))
+    get_db().commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/feedback/<int:fb_id>/review", methods=["POST"])
+def api_admin_feedback_review(fb_id):
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin", "staff")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    get_db().execute("UPDATE feedback SET status='read' WHERE id=?", (fb_id,))
     get_db().commit()
     return jsonify({"ok": True})
 
@@ -1731,6 +1856,78 @@ def api_admin_users():
     return jsonify({"users": [api_user_dict(r) for r in rows]})
 
 
+@app.route("/api/admin/users/<int:user_id>/credits", methods=["POST"])
+def api_admin_user_credits(user_id):
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    data = request.get_json(silent=True) or {}
+    amount = data.get("amount", 0)
+    if amount == 0:
+        return jsonify({"error": "Amount must not be 0"}), 400
+    db = get_db()
+    target = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    if target["id"] == user["id"]:
+        return jsonify({"error": "You cannot adjust your own balance here"}), 400
+    db.execute("UPDATE users SET credit_balance = credit_balance + ? WHERE id=?",
+               (amount, user_id))
+    txn_type = "admin_topup" if amount > 0 else "admin_deduct"
+    db.execute(
+        "INSERT INTO credits_transactions (user_id, amount, type, booking_id) VALUES (?,?,?,?)",
+        (user_id, abs(amount), txn_type, None))
+    db.commit()
+    new_balance = db.execute(
+        "SELECT credit_balance FROM users WHERE id=?", (user_id,)).fetchone()["credit_balance"]
+    return jsonify({"ok": True, "balance": new_balance})
+
+
+@app.route("/api/admin/users/<int:user_id>/role", methods=["POST"])
+def api_admin_user_role(user_id):
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    data = request.get_json(silent=True) or {}
+    role = data.get("role", "")
+    if role not in ("admin", "staff", "customer"):
+        return jsonify({"error": "Invalid role"}), 400
+    if user_id == user["id"]:
+        return jsonify({"error": "You cannot change your own role"}), 400
+    db = get_db()
+    if not db.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone():
+        return jsonify({"error": "User not found"}), 404
+    db.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/users/<int:user_id>/name", methods=["POST"])
+def api_admin_user_name(user_id):
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Name cannot be empty"}), 400
+    db = get_db()
+    if not db.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone():
+        return jsonify({"error": "User not found"}), 404
+    db.execute("UPDATE users SET name=? WHERE id=?", (name, user_id))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/staff/today")
 def api_staff_today():
     user, err = api_require_user()
@@ -1742,7 +1939,9 @@ def api_staff_today():
     today = datetime.date.today().isoformat()
     rows = get_db().execute(
         "SELECT b.*, u.name AS uname FROM bookings b JOIN users u ON u.id=b.user_id"
-        " WHERE b.booking_date=? ORDER BY b.time_slot", (today,)).fetchall()
+        " WHERE b.booking_date=?"
+        " ORDER BY CASE b.status WHEN 'pending' THEN 0 WHEN 'confirmed' THEN 1"
+        " WHEN 'completed' THEN 2 ELSE 3 END, b.time_slot, b.id", (today,)).fetchall()
     anns = get_db().execute(
         "SELECT * FROM announcements ORDER BY created_at DESC LIMIT 3").fetchall()
     return jsonify({"today": [api_booking_dict(r) for r in rows],
@@ -1796,18 +1995,6 @@ def api_settings_hours():
     if not row:
         return jsonify({"error": "Canteen not found"}), 404
     return jsonify({"open_time": row["open_time"], "close_time": row["close_time"]})
-
-
-@app.route("/api/points", methods=["GET"])
-def api_points():
-    user, err = api_require_user()
-    if err:
-        return jsonify(err[0]), err[1]
-    rows = get_db().execute(
-        "SELECT * FROM points_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
-        (user["id"],)).fetchall()
-    return jsonify({"points": user["points"] if "points" in user.keys() else 0,
-                    "history": [dict(r) for r in rows]})
 
 
 @app.route("/api/admin/offers", methods=["GET", "POST"])
@@ -1888,19 +2075,65 @@ def api_admin_settings():
 
 
 # --------------------------------------------------------------------------
-# Wallet & Notifications
+# Credits & Notifications
 # --------------------------------------------------------------------------
 
-@app.route("/api/points", methods=["GET"])
-def api_points():
+@app.route("/api/credits", methods=["GET"])
+def api_credits():
     user, err = api_require_user()
     if err:
         return jsonify(err[0]), err[1]
     db = get_db()
     rows = db.execute(
-        "SELECT * FROM credit_points_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
+        "SELECT * FROM credits_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
         (user["id"],)).fetchall()
-    return jsonify({"points": user["credit_points"] if "credit_points" in user.keys() else 0,
+    return jsonify({"balance": user["credit_balance"] if "credit_balance" in user.keys() else 0,
+                    "history": [dict(r) for r in rows]})
+
+@app.route("/api/admin/credits-transactions", methods=["GET"])
+def api_admin_credits_transactions():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    denied = api_require_roles(user, "admin", "staff")
+    if denied:
+        return jsonify(denied[0]), denied[1]
+    db = get_db()
+    rows = db.execute(
+        "SELECT ct.*, u.name AS uname FROM credits_transactions ct"
+        " JOIN users u ON u.id=ct.user_id ORDER BY ct.created_at DESC LIMIT 50"
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/credits/topup", methods=["POST"])
+def api_credits_topup():
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    data = request.get_json(silent=True) or {}
+    amount = data.get("amount", 0)
+    method = data.get("method", "esewa")
+    if not amount or amount <= 0:
+        return jsonify({"error": "Amount must be greater than 0"}), 400
+    if method not in ("esewa", "khalti", "banking"):
+        return jsonify({"error": "Invalid payment method"}), 400
+    db = get_db()
+    # Add amount directly to credits balance (real money)
+    db.execute("UPDATE users SET credit_balance = credit_balance + ? WHERE id=?", (amount, user["id"]))
+    db.execute("INSERT INTO credits_transactions (user_id, amount, type, booking_id) VALUES (?,?,?,?)",
+               (user["id"], amount, f"topup_{method}", None))
+    db.commit()
+    new_balance = db.execute("SELECT credit_balance FROM users WHERE id=?", (user["id"],)).fetchone()["credit_balance"]
+    txn_ref = "TOPUP-" + secrets.token_hex(4).upper()
+    return jsonify({"ok": True, "balance": new_balance, "txn_ref": txn_ref})
+    user, err = api_require_user()
+    if err:
+        return jsonify(err[0]), err[1]
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM credits_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
+        (user["id"],)).fetchall()
+    return jsonify({"balance": user["credit_balance"] if "credit_balance" in user.keys() else 0,
                     "history": [dict(r) for r in rows]})
 
 
