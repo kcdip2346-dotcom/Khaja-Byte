@@ -767,9 +767,9 @@ def cancel_booking(booking_id):
     elif booking["status"] in ("completed", "cancelled"):
         flash("This booking can no longer be cancelled.", "warn")
     elif not booking_cancellable(booking):
-        flash("The {} minute cancellation window has passed — the order is "
-              "already being prepared and cannot be cancelled.".format(
-                  CANCEL_WINDOW_MINUTES), "warn")
+        flash("Orders can be cancelled free up to {} minutes before the booked "
+              "time — food preparation has already started, so this booking "
+              "can no longer be cancelled.".format(CANCEL_LEAD_MINUTES), "warn")
     else:
         db.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (booking_id,))
         if booking["payment_status"] == "paid":
@@ -1190,22 +1190,30 @@ def api_item_dict(i):
             "ingredients": i["ingredients"] if "ingredients" in i.keys() else ""}
 
 
-CANCEL_WINDOW_MINUTES = 7
+CANCEL_LEAD_MINUTES = 30
 
 
 def booking_cancel_deadline(b):
-    """Free-cancellation deadline (created_at + window) or None.
-    created_at is stored via SQLite datetime('now') which is UTC."""
+    """Cancellation deadline = 30 minutes before the booked time slot, which is
+    also the point where food preparation begins. Booking date/time is stored
+    in local 12-hour format; it is shifted to UTC so the deadline can be
+    compared against created_at (UTC)."""
     try:
-        created = datetime.datetime.strptime(b["created_at"], "%Y-%m-%d %H:%M:%S")
+        raw = "{} {}".format(b["booking_date"], b["time_slot"])
+        try:
+            bt_local = datetime.datetime.strptime(raw, "%Y-%m-%d %I:%M %p")
+        except ValueError:
+            bt_local = datetime.datetime.strptime(raw, "%Y-%m-%d %H:%M")
+        offset = datetime.datetime.now().astimezone().utcoffset()
+        bt_utc = bt_local - offset
+        return bt_utc - datetime.timedelta(minutes=CANCEL_LEAD_MINUTES)
     except (ValueError, KeyError, TypeError):
         return None
-    return created + datetime.timedelta(minutes=CANCEL_WINDOW_MINUTES)
 
 
 def booking_cancellable(b):
-    """A pre-order may be cancelled only inside the free window and while the
-    meal has not been prepared (policy: 7 minute grace from submission)."""
+    """A pre-order may be cancelled only up to 30 minutes before the booked
+    time, i.e. before the kitchen starts preparing the meal."""
     if b["status"] not in ("pending", "confirmed"):
         return False
     deadline = booking_cancel_deadline(b)
@@ -1466,9 +1474,10 @@ def api_cancel_booking(booking_id):
         return jsonify({"error": "This booking can no longer be cancelled"}), 400
     if not booking_cancellable(booking):
         return jsonify({
-            "error": ("The {} minute cancellation window has passed and your "
-                      "order is already being prepared — it can no longer be "
-                      "cancelled or modified.").format(CANCEL_WINDOW_MINUTES)
+            "error": ("Orders can be cancelled free up to {} minutes before "
+                      "the booked time — food preparation has started, so this "
+                      "booking can no longer be cancelled or modified."
+                      ).format(CANCEL_LEAD_MINUTES)
         }), 400
     db.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (booking_id,))
     if booking["payment_status"] == "paid":
@@ -2188,4 +2197,6 @@ def create_notification(user_id, title, body, booking_id=None):
 init_db()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Port 5000 is used by macOS AirPlay Receiver, so default to 5001.
+    app.run(debug=True, host="127.0.0.1",
+            port=int(os.environ.get("PORT", 5001)))
