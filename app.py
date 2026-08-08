@@ -5,7 +5,7 @@ import hashlib
 import datetime
 import secrets
 
-from flask import (Flask, request, g, jsonify)
+from flask import (Flask, request, g, Response, jsonify)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "khajabyte.db")
