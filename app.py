@@ -570,30 +570,42 @@ def booking_cancellable(b):
     return datetime.datetime.utcnow() < deadline
 
 
+def prep_estimate(db, items_json):
+    """Expected prep: the slowest item in the order cooks in parallel —
+    repeats of the same dish don't stack. Consistent everywhere."""
+    try:
+        lines = json.loads(items_json) if items_json else []
+        item_ids = [l.get("id") for l in lines if l.get("id")]
+        if not item_ids:
+            return 15
+        marks = ",".join("?" * len(item_ids))
+        rows = db.execute(
+            f"SELECT id, prep_time FROM menu_items WHERE id IN ({marks})",
+            item_ids).fetchall()
+        preps = {r["id"]: r["prep_time"] or 15 for r in rows}
+        return max(preps.get(l.get("id"), 15) for l in lines)
+    except Exception:
+        return 15
+
+
+def queue_estimate(db, booking_date, canteen_id, time_slot, booking_id):
+    """Orders in the same time slot already ahead of this one (including
+    itself): ~15 min each. Same formula at order time and in booking cards."""
+    ahead = db.execute(
+        "SELECT COUNT(*) c FROM bookings WHERE booking_date=? AND canteen_id=?"
+        " AND time_slot=? AND status IN ('pending','confirmed') AND id <= ?",
+        (booking_date, canteen_id, time_slot, booking_id)).fetchone()["c"]
+    return max(ahead, 1) * 15
+
+
 def api_booking_dict(b):
     db = get_db()
     deadline = booking_cancel_deadline(b)
-    # Live queue position: pending orders ahead of this one at the same canteen & date
-    prep_time = 0
-    try:
-        import json as _json
-        lines = _json.loads(b["items_json"]) if b["items_json"] else []
-        item_ids = [l.get("id") for l in lines if l.get("id")]
-        if item_ids:
-            marks = ",".join("?" * len(item_ids))
-            rows = db.execute(f"SELECT id, prep_time FROM menu_items WHERE id IN ({marks})", item_ids).fetchall()
-            preps = {r["id"]: r["prep_time"] or 15 for r in rows}
-            for l in lines:
-                prep_time += (preps.get(l.get("id"), 15) or 15) * (l.get("qty") or 1)
-    except Exception:
-        prep_time = 15
-    queue_wait = 0
-    if b["status"] in ("pending", "confirmed"):
-        ahead = db.execute(
-            "SELECT COUNT(*) c FROM bookings WHERE booking_date=? AND canteen_id=?"
-            " AND status IN ('pending','confirmed') AND id <= ?",
-            (b["booking_date"], b["canteen_id"] if "canteen_id" in b.keys() else 1, b["id"])).fetchone()["c"]
-        queue_wait = max(ahead, 1) * 15
+    prep_time = prep_estimate(db, b["items_json"])
+    queue_wait = queue_estimate(
+        db, b["booking_date"],
+        b["canteen_id"] if "canteen_id" in b.keys() else 1,
+        b["time_slot"], b["id"]) if b["status"] in ("pending", "confirmed") else 0
     return {"id": b["id"], "user_id": b["user_id"],
             "booking_date": b["booking_date"], "time_slot": b["time_slot"],
             "item_summary": b["item_summary"], "total": b["total"],
@@ -790,12 +802,10 @@ def api_order():
         db.execute("INSERT INTO credits_transactions (user_id, amount, type, booking_id) VALUES (?,?,?,?)",
                    (user["id"], -credits_discount, "spend", booking_id))
 
-    # Queue estimation: count pending orders for today at same canteen
-    today = datetime.date.today().isoformat()
-    pending_count = db.execute(
-        "SELECT COUNT(*) c FROM bookings WHERE booking_date=? AND canteen_id=? AND status='pending'",
-        (today, canteen_id)).fetchone()["c"]
-    queue_wait_minutes = pending_count * 15  # avg 15 min per order
+    # Queue estimation: same formula as booking cards — orders ahead in the
+    # same slot (including this one) at ~15 min each.
+    queue_wait_minutes = queue_estimate(
+        db, booking_date, canteen_id, time_slot, booking_id)
 
     db.commit()
     return jsonify({"booking_id": booking_id, "txn_ref": txn_ref,
