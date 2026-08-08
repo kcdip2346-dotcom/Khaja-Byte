@@ -1251,6 +1251,11 @@ def api_admin_user_credits(user_id):
         return jsonify({"error": "User not found"}), 404
     if target["id"] == user["id"]:
         return jsonify({"error": "You cannot adjust your own balance here"}), 400
+    # Never let a deduction push the balance below zero.
+    if amount < 0:
+        amount = max(amount, -target["credit_balance"])
+    if amount == 0:
+        return jsonify({"error": "Nothing to deduct — balance is already 0"}), 400
     db.execute("UPDATE users SET credit_balance = credit_balance + ? WHERE id=?",
                (amount, user_id))
     txn_type = "admin_topup" if amount > 0 else "admin_deduct"
