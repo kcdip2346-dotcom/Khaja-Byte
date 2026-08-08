@@ -1375,7 +1375,12 @@ def api_order():
     if not items or not booking_date or not time_slot:
         return jsonify({"error": "Please select items, date and time slot"}), 400
     try:
-        cart = [(int(i["id"]), int(i["qty"])) for i in items]
+        cart = []
+        excludes = []
+        for i in items:
+            cart.append((int(i["id"]), int(i["qty"])))
+            excludes.append([str(x).strip() for x in (i.get("exclude") or [])
+                             if str(x).strip()])
     except (KeyError, TypeError, ValueError):
         return jsonify({"error": "Invalid cart contents"}), 400
     if not cart:
@@ -1384,7 +1389,7 @@ def api_order():
     db = get_db()
     summary_parts, line_items, total = [], [], 0.0
     total_prep_time = 0
-    for item_id, qty in cart:
+    for idx, (item_id, qty) in enumerate(cart):
         row = db.execute("SELECT * FROM menu_items WHERE id=?", (item_id,)).fetchone()
         if not row or not row["available"]:
             return jsonify({"error": "An item in your cart is no longer available"}), 409
@@ -1393,9 +1398,14 @@ def api_order():
             item_price = row["own_cup_price"]
         total += item_price * qty
         total_prep_time = max(total_prep_time, row["prep_time"] if "prep_time" in row.keys() else 15)
-        summary_parts.append("{} x {}".format(qty, row["name"]))
-        line_items.append({"id": row["id"], "name": row["name"],
-                           "image": row["image"], "qty": qty, "price": item_price})
+        excluded = excludes[idx] if idx < len(excludes) else []
+        note = " (no {})".format(", ".join(excluded)) if excluded else ""
+        summary_parts.append("{} x {}{}".format(qty, row["name"], note))
+        line = {"id": row["id"], "name": row["name"],
+                "image": row["image"], "qty": qty, "price": item_price}
+        if excluded:
+            line["exclude"] = excluded
+        line_items.append(line)
     item_summary = ", ".join(summary_parts)
 
     if method in ("card", "esewa", "khalti"):
@@ -2198,5 +2208,6 @@ init_db()
 
 if __name__ == "__main__":
     # Port 5000 is used by macOS AirPlay Receiver, so default to 5001.
-    app.run(debug=True, host="127.0.0.1",
+    # Bind 0.0.0.0 so phones on the same Wi-Fi can reach the API.
+    app.run(debug=True, host="0.0.0.0",
             port=int(os.environ.get("PORT", 5001)))
