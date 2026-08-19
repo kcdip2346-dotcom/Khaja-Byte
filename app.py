@@ -539,7 +539,8 @@ def api_item_dict(i):
 
 
 CANCEL_LEAD_MINUTES = 30
-CREDITS_DISCOUNT_PCT = 10  # % off the order when paying with credit points
+CREDITS_DISCOUNT_PCT = 20  # % off the order when paying with credit points
+CREDITS_DISCOUNT_MIN_PRICE = 150  # only "expensive" items (>= NPR) get the deal
 
 
 def booking_cancel_deadline(b):
@@ -782,7 +783,12 @@ def api_order():
     use_credits = data.get("use_credits", 0) or data.get("useWallet", 0)
     if use_credits and float(use_credits) > 0:
         user_credits = user["credit_balance"] if "credit_balance" in user.keys() else 0
-        discount_amount = round(total * CREDITS_DISCOUNT_PCT / 100.0, 2)
+        # Discount applies only to credit-deal (expensive) lines.
+        eligible_total = sum(
+            (l.get("price") or 0) * (l.get("qty") or 1)
+            for l in line_items
+            if (l.get("price") or 0) >= CREDITS_DISCOUNT_MIN_PRICE)
+        discount_amount = round(eligible_total * CREDITS_DISCOUNT_PCT / 100.0, 2)
         total = round(total - discount_amount, 2)
         credits_discount = min(float(use_credits), user_credits)
         credits_discount = min(credits_discount, total)  # Can't exceed total
