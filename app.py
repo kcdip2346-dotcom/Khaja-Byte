@@ -541,6 +541,7 @@ def api_item_dict(i):
 CANCEL_LEAD_MINUTES = 30
 CREDITS_DISCOUNT_PCT = 20  # % off the order when paying with credit points
 CREDITS_DISCOUNT_MIN_PRICE = 150  # only "expensive" items (>= NPR) get the deal
+CREDITS_DISCOUNT_MIN_ORDER = 150  # order subtotal must be >= this to unlock the deal
 
 
 def booking_cancel_deadline(b):
@@ -788,7 +789,8 @@ def api_order():
             (l.get("price") or 0) * (l.get("qty") or 1)
             for l in line_items
             if (l.get("price") or 0) >= CREDITS_DISCOUNT_MIN_PRICE)
-        discount_amount = round(eligible_total * CREDITS_DISCOUNT_PCT / 100.0, 2)
+        discount_amount = round(eligible_total * CREDITS_DISCOUNT_PCT / 100.0, 2) \
+            if total >= CREDITS_DISCOUNT_MIN_ORDER else 0.0
         total = round(total - discount_amount, 2)
         credits_discount = min(float(use_credits), user_credits)
         credits_discount = min(credits_discount, total)  # Can't exceed total
