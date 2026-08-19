@@ -539,6 +539,7 @@ def api_item_dict(i):
 
 
 CANCEL_LEAD_MINUTES = 30
+CREDITS_DISCOUNT_PCT = 10  # % off the order when paying with credit points
 
 
 def booking_cancel_deadline(b):
@@ -731,7 +732,7 @@ def api_order():
     customer_name = (data.get("customer_name") or "").strip() or user["name"]
 
     if method == "cash":
-        return jsonify({"error": "Cash is not accepted. Please choose a prepaid method."}), 400
+        payment_status = "unpaid"  # cash is settled at the counter on pickup
     if not items or not booking_date or not time_slot:
         return jsonify({"error": "Please select items, date and time slot"}), 400
     try:
@@ -775,14 +776,17 @@ def api_order():
     else:
         payment_status = "unpaid"
 
-    # Credits payment (use credits balance to pay)
+    # Credits payment (use credits balance to pay) — with loyalty discount
     credits_discount = 0
+    discount_amount = 0.0
     use_credits = data.get("use_credits", 0) or data.get("useWallet", 0)
     if use_credits and float(use_credits) > 0:
         user_credits = user["credit_balance"] if "credit_balance" in user.keys() else 0
+        discount_amount = round(total * CREDITS_DISCOUNT_PCT / 100.0, 2)
+        total = round(total - discount_amount, 2)
         credits_discount = min(float(use_credits), user_credits)
         credits_discount = min(credits_discount, total)  # Can't exceed total
-        total = max(0, total - credits_discount)
+        total = max(0, round(total - credits_discount, 2))
 
     txn_ref = "KB-" + secrets.token_hex(3).upper()
     cur = db.execute(
@@ -812,7 +816,8 @@ def api_order():
                     "total": total, "payment_status": payment_status,
                     "credits_used": credits_discount,
                     "credit_balance": (user["credit_balance"] if "credit_balance" in user.keys() else 0) - credits_discount,
-                    "prep_time": total_prep_time, "queue_wait": queue_wait_minutes})
+                    "prep_time": total_prep_time, "queue_wait": queue_wait_minutes,
+                    "discount": discount_amount})
 
 
 @app.route("/api/bookings")
